@@ -56,6 +56,13 @@ Le serveur Sync fonctionne entièrement en relais aveugle : il ne reçoit jamais
    # {"status":"ok","version":"1.1.0"}
    ```
 
+> 💡 **Assistant graphique (`.deb`) disponible** : pour effectuer ces étapes (contrôle des dépendances, saisie de l'URL Cloudflare Pages dans `compose.yaml`, démarrage Docker, test `/healthz` et lecture des logs) depuis une interface graphique aux couleurs de Noteor, installez ou construisez `noteor-sync-manager` dans [`sync-server-manager/`](sync-server-manager/README.md) :
+> ```bash
+> bash sync-server-manager/packaging/build_deb.sh
+> sudo apt install ./sync-server-manager/dist/noteor-sync-manager_1.1.0_all.deb
+> noteor-sync-manager
+> ```
+
 #### Option B — En Python natif sur votre machine (sans Docker)
 
 - **Avec FastAPI / Uvicorn (environnement dédié `sync-server/.venv`) :**

@@ -1,0 +1,13 @@
+Package: noteor-sync-manager
+Version: 1.1.0
+Section: utils
+Priority: optional
+Architecture: all
+Maintainer: Noteor Project <maintainers@noteor.local>
+Depends: python3 (>= 3.10), python3-pyqt6, curl, bash
+Recommends: docker.io | docker-ce, docker-compose-v2 | docker-compose-plugin, python3-pyqt6.qtsvg
+Description: Assistant graphique Noteor pour déployer sync-server/ avec Docker Compose
+ Utilitaire graphique reprenant le thème Noteor pour vérifier les prérequis
+ Docker/Compose, paramétrer sync-server/compose.yaml (NOTEOR_DATA_DIR,
+ NOTEOR_CORS_ORIGINS avec l'URL Cloudflare Pages), démarrer le conteneur
+ noteor-sync, contrôler /healthz et consulter les logs serveur.

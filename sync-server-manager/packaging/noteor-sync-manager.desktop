@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Noteor Sync Manager
+GenericName=Gestionnaire Serveur Noteor Sync
+Comment=Configurer et démarrer sync-server/ via Docker Compose (Option A)
+Exec=/usr/bin/noteor-sync-manager
+Icon=noteor-sync-manager
+Terminal=false
+Categories=Utility;Development;System;
+StartupWMClass=noteor-sync-manager
+Keywords=noteor;sync;docker;compose;e2ee;

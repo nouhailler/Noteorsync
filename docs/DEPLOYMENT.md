@@ -51,6 +51,8 @@ curl -fsS http://127.0.0.1:8787/healthz
 # Attendu : {"status":"ok","version":"1.1.0"}
 ```
 
+> **Option graphique (`.deb`)** : un assistant graphique reprenant le thème Noteor (`sync-server-manager/`) automatise la vérification des dépendances, l'édition de `compose.yaml`, le démarrage de `noteor-sync`, le test `/healthz` et la consultation des logs Docker (`bash sync-server-manager/packaging/build_deb.sh`).
+
 #### Option B : Exécution Python native sur votre machine (sans Docker)
 
 **Mode FastAPI / Uvicorn (recommandé en natif) :**
