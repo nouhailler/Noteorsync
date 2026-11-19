@@ -3,12 +3,13 @@
 **Document :** `NOTEOR_SYNC_DATA_MODEL.md`  
 **Version :** 1.1 — 19 novembre 2026  
 **Statut :** Contrat normatif commun Desktop / PWA  
+**Documents associés :** `NOTEOR_SYNC_ARCHITECTURE.md`, `NOTEOR_SYNC_PROTOCOL.md`, `NOTEOR_SYNC_CRYPTO.md`
 
 ---
 
 ## 1. Principes généraux
 
-1. **Identifiants globaux :** toute entité synchronisable possède un `entity_id` (`sync_id` en base locale) de type **UUID v4 minuscule canonique** (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`). Les clés primaires numériques locales (`id`) restent strictement locales et ne traversent jamais le réseau.
+1. **Identifiants globaux :** toute entité synchronisable possède un `entity_id` (`sync_id` en base locale) généré en **UUID v4 minuscule canonique** (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) et validé sur le format canonique 8-4-4-4-12 minuscule. Les clés primaires numériques locales (`id`) restent strictement locales et ne traversent jamais le réseau.
 2. **Horodatages :** tous les champs `created_at`, `updated_at`, `deleted_at` du protocole utilisent **UTC RFC 3339 / ISO 8601 avec millisecondes et suffixe `Z`** (`2026-11-19T12:41:00.000Z`).
 3. **Encodage binaire :** toute donnée binaire en JSON utilise **Base64 URL-safe sans remplissage `=`** (`[A-Za-z0-9_-]`).
 4. **Révisions :** chaque entité maintient un graphe orienté acyclique (DAG) de révisions identifiées par `revision_id` (UUID v4) et `parent_revision_ids` (liste d'UUID v4).

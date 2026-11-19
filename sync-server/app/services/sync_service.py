@@ -22,6 +22,7 @@ _B64U_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_BATCH_SIZE = 100
 MAX_PAIRING_ATTEMPTS = 5
+MAX_HTTP_CHUNK_SIZE = 4 * 1024 * 1024
 
 
 def _now_iso() -> str:
@@ -135,6 +136,21 @@ class SyncService:
             "device_id": device_id,
             "device_access_token": token,
             "current_key_epoch": 1,
+        }
+
+    def get_vault_info(self, vault_id: str) -> dict[str, Any]:
+        assert_uuid(vault_id, "vault_id")
+        row = self.storage.conn.execute(
+            "SELECT vault_id, current_key_epoch FROM vaults WHERE vault_id=?",
+            (vault_id,),
+        ).fetchone()
+        if not row:
+            raise ApiError(404, "VAULT_NOT_FOUND", "Vault not found")
+        return {
+            "vault_id": row["vault_id"],
+            "protocol_version": 1,
+            "current_key_epoch": int(row["current_key_epoch"]),
+            "status": "active",
         }
 
     # ── Operations Batch Push & Pull ──────────────────────────────────────────
@@ -340,13 +356,21 @@ class SyncService:
             active_devs = c.execute(
                 "SELECT device_id FROM devices WHERE vault_id=? AND status='active'", (vault_id,)
             ).fetchall()
-            for dev in active_devs:
-                if dev["device_id"] not in wrapped_keys or not _B64U_RE.match(str(wrapped_keys[dev["device_id"]])):
+            active_ids = {dev["device_id"] for dev in active_devs}
+            for dev_id in active_ids:
+                if dev_id not in wrapped_keys or not _B64U_RE.match(str(wrapped_keys[dev_id])):
                     raise ApiError(
                         400,
                         "MISSING_WRAPPED_KEY",
-                        f"Missing valid wrapped key for active device {dev['device_id']}",
+                        f"Missing valid wrapped key for active device {dev_id}",
                     )
+            extra_ids = set(wrapped_keys.keys()) - active_ids
+            if extra_ids:
+                raise ApiError(
+                    400,
+                    "INVALID_WRAPPED_KEYS",
+                    f"wrapped_keys contains unknown or revoked device IDs: {sorted(extra_ids)}",
+                )
 
             for dev_id, wrapped_val in wrapped_keys.items():
                 assert_uuid(dev_id, "target_device_id")
@@ -405,6 +429,10 @@ class SyncService:
             raise ApiError(403, "DEVICE_MISMATCH", "device_a_id must match caller")
 
         with self.storage.transaction() as c:
+            if not c.execute("SELECT 1 FROM vaults WHERE vault_id=?", (vault_id,)).fetchone():
+                raise ApiError(404, "VAULT_NOT_FOUND", "Vault not found")
+            if c.execute("SELECT 1 FROM pairing_sessions WHERE pairing_id=?", (pairing_id,)).fetchone():
+                raise ApiError(409, "PAIRING_EXISTS", "Pairing session already exists")
             c.execute(
                 """INSERT INTO pairing_sessions
                    (pairing_id, vault_id, device_a_id, pairing_nonce, expires_at, status, created_at)
@@ -444,6 +472,8 @@ class SyncService:
             sess = self._get_valid_pairing_in_tx(c, vault_id, pairing_id)
             if sess["status"] != "created":
                 raise ApiError(409, "PAIRING_INVALID_STATE", f"Pairing status is {sess['status']}")
+            if c.execute("SELECT 1 FROM devices WHERE device_id=?", (dev_b_id,)).fetchone():
+                raise ApiError(409, "DEVICE_EXISTS", "Device ID already registered")
             c.execute(
                 """UPDATE pairing_sessions SET
                    status='joined', device_b_id=?, device_b_name=?, device_b_type=?,
@@ -525,6 +555,8 @@ class SyncService:
                 if attempts >= MAX_PAIRING_ATTEMPTS:
                     c.execute("UPDATE pairing_sessions SET status='locked' WHERE pairing_id=?", (pairing_id,))
                 raise ApiError(403, "DEVICE_MISMATCH", "device_b_id mismatch")
+            if c.execute("SELECT 1 FROM devices WHERE device_id=?", (dev_b_id,)).fetchone():
+                raise ApiError(409, "DEVICE_EXISTS", "Device ID already registered")
 
             c.execute(
                 """INSERT INTO devices
@@ -556,11 +588,17 @@ class SyncService:
             key_epoch = int(body["key_epoch"])
             if enc_size < 49 or not _SHA256_RE.match(enc_sha) or key_epoch < 1:
                 raise ValueError("Invalid media metadata")
+            if "chunk_size" in body and body["chunk_size"] is not None:
+                chunk_size = int(body["chunk_size"])
+                if chunk_size < 1 or chunk_size > MAX_HTTP_CHUNK_SIZE:
+                    raise ValueError(f"chunk_size must be between 1 and {MAX_HTTP_CHUNK_SIZE}")
         except (KeyError, ValueError, TypeError) as exc:
             raise ApiError(400, "INVALID_PAYLOAD", str(exc)) from exc
 
         part_path = self.storage.media_part_path(vault_id, media_id)
         with self.storage.transaction() as c:
+            if not c.execute("SELECT 1 FROM vaults WHERE vault_id=?", (vault_id,)).fetchone():
+                raise ApiError(404, "VAULT_NOT_FOUND", "Vault not found")
             existing = c.execute(
                 "SELECT status, received_bytes, encrypted_sha256, encrypted_size FROM media_objects WHERE vault_id=? AND media_id=?",
                 (vault_id, media_id),
@@ -600,8 +638,14 @@ class SyncService:
         if not m:
             raise ApiError(400, "INVALID_RANGE", f"Malformed Content-Range: {content_range}")
         start, end, total = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        if end < start or (end - start + 1) != len(chunk):
+        if len(chunk) == 0 or end < start or (end - start + 1) != len(chunk):
             raise ApiError(400, "INVALID_RANGE", "Content-Range byte count mismatch")
+        if len(chunk) > MAX_HTTP_CHUNK_SIZE:
+            raise ApiError(
+                413,
+                "CHUNK_TOO_LARGE",
+                f"HTTP chunk length {len(chunk)} exceeds limit {MAX_HTTP_CHUNK_SIZE}",
+            )
 
         with self.storage.transaction() as c:
             row = c.execute(
@@ -611,11 +655,18 @@ class SyncService:
                 raise ApiError(404, "MEDIA_NOT_FOUND", "Media upload session not initialized")
             if row["status"] == "completed":
                 return {"received_bytes": int(row["encrypted_size"])}
-            if total != int(row["encrypted_size"]) or start != int(row["received_bytes"]):
+            enc_size = int(row["encrypted_size"])
+            if total != enc_size or start != int(row["received_bytes"]):
                 raise ApiError(
                     409,
                     "RANGE_CONFLICT",
                     f"Expected offset {row['received_bytes']} of total {row['encrypted_size']}",
+                )
+            if end >= total or start + len(chunk) > enc_size:
+                raise ApiError(
+                    409,
+                    "SIZE_EXCEEDED",
+                    f"Chunk range {start}-{end} exceeds declared encrypted_size {enc_size}",
                 )
             part_path = self.storage.media_part_path(vault_id, media_id)
             with open(part_path, "ab") as f:

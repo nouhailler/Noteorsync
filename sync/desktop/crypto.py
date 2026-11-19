@@ -242,12 +242,50 @@ def _jcs_encode_number(n: int | float) -> str:
     if isinstance(n, bool):
         raise TypeError("bool is not a JSON number")
     if isinstance(n, int):
+        # Match IEEE 754 JSON behavior for integers; Python arbitrary-precision ints serialize directly
         return str(n)
     if math.isnan(n) or math.isinf(n):
         raise ValueError("RFC 8785 forbids NaN/Infinity")
     if n == 0.0:
         return "0"
-    return repr(float(n))
+
+    sign = "-" if n < 0 else ""
+    s = repr(abs(float(n)))
+    if "e" in s or "E" in s:
+        mant, exp_str = s.lower().split("e")
+        exp_val = int(exp_str)
+        int_part, _, frac_part = mant.partition(".")
+        raw_digits = int_part + frac_part
+        n_pos = exp_val + len(int_part)
+    else:
+        int_part, _, frac_part = s.partition(".")
+        if int_part != "0":
+            raw_digits = int_part + frac_part
+            n_pos = len(int_part)
+        else:
+            stripped = frac_part.lstrip("0")
+            leading_zeros = len(frac_part) - len(stripped)
+            raw_digits = stripped
+            n_pos = -leading_zeros
+
+    digits = raw_digits.rstrip("0")
+    k = len(digits)
+
+    # ECMA-262 / RFC 8785 Number::toString(10)
+    if k <= n_pos <= 21:
+        body = digits + ("0" * (n_pos - k))
+    elif 0 < n_pos <= 21:
+        body = digits[:n_pos] + "." + digits[n_pos:]
+    elif -6 < n_pos <= 0:
+        body = "0." + ("0" * (-n_pos)) + digits
+    else:
+        e = n_pos - 1
+        e_sign = "+" if e >= 0 else "-"
+        if k == 1:
+            body = f"{digits}e{e_sign}{abs(e)}"
+        else:
+            body = f"{digits[0]}.{digits[1:]}e{e_sign}{abs(e)}"
+    return sign + body
 
 
 def _jcs_serialize(value: Any) -> str:

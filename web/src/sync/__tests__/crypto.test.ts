@@ -8,6 +8,7 @@ import {
   deriveInitialEpoch1RootKey,
   deriveEpochKeys,
   deriveMediaObjectKey,
+  canonicalJsonBytes,
   buildOperationAad,
   encryptOperationEnvelope,
   decryptOperationEnvelope,
@@ -300,8 +301,22 @@ describe('Noteor Sync v1.1 Cross-Language Crypto Vectors (TS ↔ Python)', () =>
     ).rejects.toThrow();
   });
 
+  it('canonicalizes RFC 8785 JCS edge cases identically to Python', () => {
+    const inputs = readJson<{ payload: unknown }>('jcs/inputs.json');
+    const expected = readJson<{ canonical_utf8: string }>('jcs/expected.json');
+    expect(bytesToUtf8(canonicalJsonBytes(inputs.payload))).toBe(expected.canonical_utf8);
+  });
+
   it('rejects all malformed, padded, or tampered vectors', async () => {
     const hkdfExp = readJson<{ k_op_hex: string; k_media_hex: string }>('hkdf/expected.json');
+    const xchExp = readJson<{ vsk_envelope: VskRecoveryEnvelope }>('xchacha20poly1305/expected.json');
+    const xchIn = readJson<{ vault_id: string }>('xchacha20poly1305/inputs.json');
+    const pairingIn = readJson<{
+      context: { vault_id: string };
+      device_b_pub_b64u: string;
+      device_b_priv_b64u: string;
+    }>('pairing/inputs.json');
+    const pairingExp = readJson<{ sealed_epoch2_for_b: string }>('pairing/expected.json');
     const bad = readJson<{
       padded_base64url: string;
       bad_aad_envelope: OperationEnvelope;
@@ -309,8 +324,13 @@ describe('Noteor Sync v1.1 Cross-Language Crypto Vectors (TS ↔ Python)', () =>
       tampered_tag_envelope: OperationEnvelope;
       truncated_media_b64u: string;
       trailing_media_b64u: string;
+      bad_ntrm_magic_b64u: string;
+      wrong_media_id: string;
+      wrong_vsk_password: string;
+      wrong_wrap_device_id: string;
     }>('malformed/inputs.json');
     const ssIn = readJson<{ media_id: string; key_epoch: number }>('secretstream/inputs.json');
+    const ssExp = readJson<{ encrypted_blob_b64u: string }>('secretstream/expected.json');
 
     const kOp = hexToBytes(hkdfExp.k_op_hex);
     const kMedia = hexToBytes(hkdfExp.k_media_hex);
@@ -320,10 +340,31 @@ describe('Noteor Sync v1.1 Cross-Language Crypto Vectors (TS ↔ Python)', () =>
     await expect(decryptOperationEnvelope(kOp, bad.bad_epoch_envelope)).rejects.toThrow();
     await expect(decryptOperationEnvelope(kOp, bad.tampered_tag_envelope)).rejects.toThrow();
     await expect(
+      decryptVskEnvelope(xchExp.vsk_envelope, xchIn.vault_id, bad.wrong_vsk_password),
+    ).rejects.toThrow();
+    await expect(
       decryptMediaStream(kMedia, ssIn.media_id, ssIn.key_epoch, fromBase64Url(bad.truncated_media_b64u)),
     ).rejects.toThrow();
     await expect(
       decryptMediaStream(kMedia, ssIn.media_id, ssIn.key_epoch, fromBase64Url(bad.trailing_media_b64u)),
+    ).rejects.toThrow();
+    await expect(
+      decryptMediaStream(kMedia, ssIn.media_id, ssIn.key_epoch, fromBase64Url(bad.bad_ntrm_magic_b64u)),
+    ).rejects.toThrow();
+    await expect(
+      decryptMediaStream(kMedia, bad.wrong_media_id, ssIn.key_epoch, fromBase64Url(ssExp.encrypted_blob_b64u)),
+    ).rejects.toThrow();
+    await expect(
+      unsealEpochKeyForDevice(
+        fromBase64Url(pairingIn.device_b_pub_b64u),
+        fromBase64Url(pairingIn.device_b_priv_b64u),
+        pairingExp.sealed_epoch2_for_b,
+        {
+          vault_id: pairingIn.context.vault_id,
+          key_epoch: 2,
+          target_device_id: bad.wrong_wrap_device_id,
+        },
+      ),
     ).rejects.toThrow();
   });
 });

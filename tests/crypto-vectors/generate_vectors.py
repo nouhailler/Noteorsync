@@ -230,12 +230,29 @@ def main() -> None:
         },
     )
 
-    # 6. Malformed cases
+    # 6. RFC 8785 JCS edge-case vectors (UTF-16 ordering, integer-valued floats, exponents)
+    jcs_payload = {
+        "\uffff": 1,
+        "\U0001f680": 2,
+        "b": 3,
+        "a": 4,
+        "é": 5,
+        "nums": [0, 1.0, -1.0, 3.14, 1e-6, 9e-7, 1e-7, 1e20, 1e21, -1e21],
+        "nested": {"z": True, "a": None, "m": False},
+    }
+    write_pair(
+        "jcs",
+        {"payload": jcs_payload},
+        {"canonical_utf8": pyc.canonical_json_bytes(jcs_payload).decode("utf-8")},
+    )
+
+    # 7. Malformed & negative cases
     bad_aad_env = {**envelope, "device_seq": "185"}
     bad_epoch_env = {**envelope, "key_epoch": 2}
     ct_bytes = bytearray(pyc.from_b64u(envelope["ciphertext"]))
     ct_bytes[-1] ^= 0xFF
     tampered_ct_env = {**envelope, "ciphertext": pyc.to_b64u(bytes(ct_bytes))}
+    bad_ntrm_magic = b"XXXX" + media_blob[4:]
     write_pair(
         "malformed",
         {
@@ -245,6 +262,10 @@ def main() -> None:
             "tampered_tag_envelope": tampered_ct_env,
             "truncated_media_b64u": pyc.to_b64u(media_blob[:-5]),
             "trailing_media_b64u": pyc.to_b64u(media_blob + b"\x00\x00\x00\x01x"),
+            "bad_ntrm_magic_b64u": pyc.to_b64u(bad_ntrm_magic),
+            "wrong_media_id": "550e8400-e29b-41d4-a716-446655440099",
+            "wrong_vsk_password": "Wrong password!",
+            "wrong_wrap_device_id": "550e8400-e29b-41d4-a716-4466554400fe",
         },
         {
             "must_fail_all": True,
@@ -255,3 +276,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

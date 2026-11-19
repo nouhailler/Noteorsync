@@ -220,10 +220,15 @@ python3 -m unittest discover -s tests/python -v
 
 ## 📚 Documentation
 
-- [`CHANGELOG.md`](CHANGELOG.md) — Historique des versions (`v1.0.0`, `v1.1.0`)
-- [`CONTEXT.md`](CONTEXT.md) — Architecture complète du dépôt et état technique
+- [`docs/sync/NOTEOR_SYNC_ARCHITECTURE.md`](docs/sync/NOTEOR_SYNC_ARCHITECTURE.md) — Architecture technique de référence et réconciliation v1.1
+- [`docs/sync/NOTEOR_SYNC_PROTOCOL.md`](docs/sync/NOTEOR_SYNC_PROTOCOL.md) — Spécification du protocole et matrice complète de l'API HTTP `/api/v1`
+- [`docs/sync/NOTEOR_SYNC_CRYPTO.md`](docs/sync/NOTEOR_SYNC_CRYPTO.md) — Spécification cryptographique E2EE (`Argon2id`, `XChaCha20-Poly1305`, `NTRM1`, jumelage)
+- [`docs/sync/NOTEOR_SYNC_DATA_MODEL.md`](docs/sync/NOTEOR_SYNC_DATA_MODEL.md) — Modèle de données commun Desktop / PWA et résolution DAG
+- [`docs/sync/NOTEOR_SYNC_CONFORMANCE_REPORT.md`](docs/sync/NOTEOR_SYNC_CONFORMANCE_REPORT.md) — Rapport de conformité et d'audit croisé v1.1
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — Guide pas à pas (Serveur Sync, Cloudflare Pages, Desktop)
 - [`sync-server-manager/README.md`](sync-server-manager/README.md) — Construction et usage du paquet `.deb`
+- [`CHANGELOG.md`](CHANGELOG.md) — Historique des versions (`v1.0.0`, `v1.1.0`)
+- [`CONTEXT.md`](CONTEXT.md) — Architecture complète du dépôt et état technique
 
 ---
 

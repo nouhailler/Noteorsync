@@ -108,6 +108,29 @@ class TestDesktopAdapterAndEngine(unittest.TestCase):
             self.assertEqual(after["content"], "V1 + Remote Edit")
             adapter.close()
 
+    def test_local_offline_without_sync_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter = DesktopSyncDatabase(Path(tmp) / "offline_only.db")
+            self.assertIsNone(adapter.get_state("vault_id"))
+            cat_id = adapter.save_category(name="Personnel", color="#4F46E5")
+            folder_id = adapter.save_folder(name="Journal")
+            note_id = adapter.save_note(
+                title="Note locale autonome",
+                content="Contenu complet avec [[Wikilink]]",
+                category_id=cat_id,
+                folder_id=folder_id,
+            )
+            adapter.add_tag_to_note(note_id, "Hors-ligne")
+            adapter.trash_note(note_id)
+            self.assertEqual(adapter.conn.execute("SELECT is_deleted FROM notes WHERE id=?", (note_id,)).fetchone()["is_deleted"], 1)
+            adapter.restore_note(note_id)
+            row = adapter.conn.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone()
+            self.assertEqual(row["is_deleted"], 0)
+            self.assertEqual(row["title"], "Note locale autonome")
+            # No sync operations queued when vault_id is unset (pure local mode)
+            self.assertEqual(adapter.conn.execute("SELECT COUNT(*) FROM sync_operations").fetchone()[0], 0)
+            adapter.close()
+
 
 if __name__ == "__main__":
     unittest.main()

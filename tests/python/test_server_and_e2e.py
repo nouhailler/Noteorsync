@@ -274,6 +274,122 @@ class TestServerAndDesktopE2E(unittest.TestCase):
         db_a.close()
         db_b.close()
 
+    def test_v11_security_and_protocol_hardening(self) -> None:
+        import json
+        import socket
+        import urllib.request
+
+        # 1. /healthz and /api/v1/health
+        with urllib.request.urlopen(f"{self.url}/healthz") as r1:
+            self.assertEqual(r1.status, 200)
+            self.assertEqual(json.loads(r1.read())["version"], "1.1.0")
+        with urllib.request.urlopen(f"{self.url}/api/v1/health") as r2:
+            self.assertEqual(r2.status, 200)
+            body2 = json.loads(r2.read())
+            self.assertEqual(body2["api_version"], 1)
+
+        # 2. Create two isolated vaults -> GET /api/v1/vaults/{vault_id} & VAULT_MISMATCH
+        v1 = pyc.generate_uuid_v4()
+        d1 = pyc.generate_uuid_v4()
+        pk1, _ = pyc.generate_device_keypair()
+        c1 = SyncHttpClient(self.url)
+        b1 = c1.bootstrap_vault({
+            "vault_id": v1, "device_id": d1, "device_name": "D1",
+            "device_type": "desktop", "public_key_x25519": pyc.to_b64u(pk1),
+        })
+        c1.access_token = b1["device_access_token"]
+        vinfo = c1.get_vault_info(v1)
+        self.assertEqual(vinfo["vault_id"], v1)
+        self.assertEqual(vinfo["current_key_epoch"], 1)
+        self.assertEqual(vinfo["protocol_version"], 1)
+
+        v2 = pyc.generate_uuid_v4()
+        d2 = pyc.generate_uuid_v4()
+        pk2, _ = pyc.generate_device_keypair()
+        SyncHttpClient(self.url).bootstrap_vault({
+            "vault_id": v2, "device_id": d2, "device_name": "D2",
+            "device_type": "pwa", "public_key_x25519": pyc.to_b64u(pk2),
+        })
+        with self.assertRaises(SyncHttpError) as ctx_vm:
+            c1.get_vault_info(v2)
+        self.assertEqual(ctx_vm.exception.status, 403)
+        self.assertEqual(ctx_vm.exception.code, "VAULT_MISMATCH")
+
+        # 3. rotate_epoch must reject extra unknown/revoked device keys
+        with self.assertRaises(SyncHttpError) as ctx_wk:
+            c1.rotate_epoch(v1, {
+                "new_key_epoch": 2,
+                "reason": "manual",
+                "wrapped_keys": {
+                    d1: pyc.to_b64u(os.urandom(48)),
+                    d2: pyc.to_b64u(os.urandom(48)),  # foreign/non-active device!
+                },
+            })
+        self.assertEqual(ctx_wk.exception.status, 400)
+        self.assertEqual(ctx_wk.exception.code, "INVALID_WRAPPED_KEYS")
+
+        # 4. Media chunked upload bounds: 413 CHUNK_TOO_LARGE, 409 SIZE_EXCEEDED, 400 CHECKSUM_MISMATCH
+        m_id = pyc.generate_uuid_v4()
+        blob = os.urandom(64)
+        wrong_sha = pyc.sha256_hex(b"other-bytes")
+        c1.init_media_upload(v1, {
+            "media_id": m_id, "encrypted_size": 64, "encrypted_sha256": wrong_sha, "key_epoch": 1, "chunk_size": 64,
+        })
+        # Chunk > 4 MiB declared
+        big_chunk = b"\x00" * (4 * 1024 * 1024 + 1)
+        with self.assertRaises(SyncHttpError) as ctx_413:
+            c1.upload_media_chunk(v1, m_id, big_chunk, 0, 64)
+        self.assertEqual(ctx_413.exception.status, 413)
+        self.assertEqual(ctx_413.exception.code, "CHUNK_TOO_LARGE")
+
+        # Upload all 64 bytes -> complete fails CHECKSUM_MISMATCH
+        c1.upload_media_chunk(v1, m_id, blob, 0, 64)
+        with self.assertRaises(SyncHttpError) as ctx_sha:
+            c1.complete_media_upload(v1, m_id)
+        self.assertEqual(ctx_sha.exception.status, 400)
+        self.assertEqual(ctx_sha.exception.code, "CHECKSUM_MISMATCH")
+
+        # SIZE_EXCEEDED when range end >= total (even with matching start offset)
+        m2_id = pyc.generate_uuid_v4()
+        c1.init_media_upload(v1, {
+            "media_id": m2_id, "encrypted_size": 50, "encrypted_sha256": pyc.sha256_hex(b"x" * 50), "key_epoch": 1,
+        })
+        with self.assertRaises(SyncHttpError) as ctx_sz:
+            c1.upload_media_chunk(v1, m2_id, b"a" * 51, 0, 50)
+        self.assertEqual(ctx_sz.exception.status, 409)
+        self.assertEqual(ctx_sz.exception.code, "SIZE_EXCEEDED")
+
+        # 5. Pairing duplicate ID & expired session -> 409 PAIRING_EXISTS & 410 PAIRING_EXPIRED
+        p_id = pyc.generate_uuid_v4()
+        fut = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+        c1.create_pairing_session(v1, {
+            "pairing_id": p_id, "device_a_id": d1, "pairing_nonce": pyc.to_b64u(os.urandom(16)), "expires_at": fut,
+        })
+        with self.assertRaises(SyncHttpError) as ctx_pe:
+            c1.create_pairing_session(v1, {
+                "pairing_id": p_id, "device_a_id": d1, "pairing_nonce": pyc.to_b64u(os.urandom(16)), "expires_at": fut,
+            })
+        self.assertEqual(ctx_pe.exception.status, 409)
+        self.assertEqual(ctx_pe.exception.code, "PAIRING_EXISTS")
+
+        p_exp = pyc.generate_uuid_v4()
+        past = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+        c1.create_pairing_session(v1, {
+            "pairing_id": p_exp, "device_a_id": d1, "pairing_nonce": pyc.to_b64u(os.urandom(16)), "expires_at": past,
+        })
+        with self.assertRaises(SyncHttpError) as ctx_410:
+            c1.get_pairing_status(v1, p_exp)
+        self.assertEqual(ctx_410.exception.status, 410)
+        self.assertEqual(ctx_410.exception.code, "PAIRING_EXPIRED")
+
+        # 6. Malformed Content-Length handled cleanly as 400 INVALID_PAYLOAD
+        host, port = self.httpd.server_address
+        with socket.create_connection((host, port), timeout=5) as sock:
+            sock.sendall(b"POST /api/v1/vaults HTTP/1.1\r\nHost: localhost\r\nContent-Length: -5\r\nConnection: close\r\n\r\n")
+            raw_resp = sock.recv(4096).decode("utf-8", errors="replace")
+        self.assertIn("400", raw_resp.splitlines()[0])
+        self.assertIn("INVALID_PAYLOAD", raw_resp)
+
 
 if __name__ == "__main__":
     unittest.main()

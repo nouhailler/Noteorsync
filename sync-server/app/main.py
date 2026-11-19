@@ -53,9 +53,21 @@ def create_app(
     def healthz() -> dict[str, str]:
         return {"status": "ok", "version": "1.1.0"}
 
+    @app.get("/api/v1/health")
+    def api_health() -> dict[str, Any]:
+        return {"status": "ok", "version": "1.1.0", "api_version": 1}
+
     @app.post("/api/v1/vaults", status_code=201)
     async def create_vault(body: dict[str, Any]) -> dict[str, Any]:
         return service.create_vault(body)
+
+    @app.get("/api/v1/vaults/{vault_id}")
+    async def get_vault(
+        vault_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        service.authenticate(authorization, vault_id)
+        return service.get_vault_info(vault_id)
 
     @app.post("/api/v1/vaults/{vault_id}/operations:batch")
     async def push_batch(

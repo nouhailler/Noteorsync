@@ -146,6 +146,9 @@ class SyncHttpClient:
     def bootstrap_vault(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request_json("POST", "/api/v1/vaults", payload, require_auth=False)
 
+    def get_vault_info(self, vault_id: str) -> dict[str, Any]:
+        return self._request_json("GET", f"/api/v1/vaults/{vault_id}")
+
     def push_operations(self, vault_id: str, operations: list[dict[str, Any]]) -> dict[str, Any]:
         return self._request_json("POST", f"/api/v1/vaults/{vault_id}/operations:batch", {"operations": operations})
 

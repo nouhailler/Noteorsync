@@ -50,7 +50,13 @@ def make_handler(service: SyncService, cors_origin: str = "*") -> type[BaseHTTPR
             self.wfile.write(raw)
 
         def _read_body(self) -> bytes:
-            length = int(self.headers.get("Content-Length", "0"))
+            raw_len = self.headers.get("Content-Length", "0")
+            try:
+                length = int(raw_len)
+            except ValueError as exc:
+                raise ValueError("Invalid Content-Length header") from exc
+            if length < 0:
+                raise ValueError("Negative Content-Length header")
             return self.rfile.read(length) if length > 0 else b""
 
         def do_OPTIONS(self) -> None:
@@ -60,22 +66,34 @@ def make_handler(service: SyncService, cors_origin: str = "*") -> type[BaseHTTPR
             self.end_headers()
 
         def _dispatch(self, method: str) -> None:
-            raw_body = self._read_body()
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
             qs = urllib.parse.parse_qs(parsed.query)
             auth = self.headers.get("Authorization")
 
-            def _json_body() -> dict[str, Any]:
-                return json.loads(raw_body.decode("utf-8")) if raw_body else {}
-
             try:
+                raw_body = self._read_body()
+
+                def _json_body() -> dict[str, Any]:
+                    return json.loads(raw_body.decode("utf-8")) if raw_body else {}
+
                 if method == "GET" and path == "/healthz":
                     self._send_json(200, {"status": "ok", "version": "1.1.0"})
                     return
 
+                if method == "GET" and path == "/api/v1/health":
+                    self._send_json(200, {"status": "ok", "version": "1.1.0", "api_version": 1})
+                    return
+
                 if method == "POST" and path == "/api/v1/vaults":
                     self._send_json(201, service.create_vault(_json_body()))
+                    return
+
+                m = re.match(r"^/api/v1/vaults/([^/]+)$", path)
+                if m and method == "GET":
+                    vid = m.group(1)
+                    service.authenticate(auth, vid)
+                    self._send_json(200, service.get_vault_info(vid))
                     return
 
                 m = re.match(r"^/api/v1/vaults/([^/]+)/operations:batch$", path)

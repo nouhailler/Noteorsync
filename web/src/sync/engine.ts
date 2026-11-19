@@ -156,6 +156,12 @@ export class SyncHttpClient {
     return this.requestJson('POST', '/api/v1/vaults', payload, false);
   }
 
+  async getVaultInfo(
+    vaultId: string,
+  ): Promise<{ vault_id: string; protocol_version: number; current_key_epoch: number; status: string }> {
+    return this.requestJson('GET', `/api/v1/vaults/${vaultId}`);
+  }
+
   async pushOperations(vaultId: string, operations: OperationEnvelope[]): Promise<BatchPushResponse> {
     return this.requestJson('POST', `/api/v1/vaults/${vaultId}/operations:batch`, { operations });
   }

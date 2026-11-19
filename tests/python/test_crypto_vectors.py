@@ -107,10 +107,23 @@ class TestCryptoVectors(unittest.TestCase):
         )
         self.assertEqual(epoch2.hex(), inputs["epoch2_root_hex"])
 
+    def test_jcs_edge_cases(self) -> None:
+        inputs = read_json("jcs/inputs.json")
+        expected = read_json("jcs/expected.json")
+        self.assertEqual(
+            pyc.canonical_json_bytes(inputs["payload"]).decode("utf-8"),
+            expected["canonical_utf8"],
+        )
+
     def test_malformed_vectors_rejected(self) -> None:
         hkdf_exp = read_json("hkdf/expected.json")
+        xch_exp = read_json("xchacha20poly1305/expected.json")
+        xch_in = read_json("xchacha20poly1305/inputs.json")
+        pairing_in = read_json("pairing/inputs.json")
+        pairing_exp = read_json("pairing/expected.json")
         bad = read_json("malformed/inputs.json")
         ss_in = read_json("secretstream/inputs.json")
+        ss_exp = read_json("secretstream/expected.json")
         k_op = bytes.fromhex(hkdf_exp["k_op_hex"])
         k_media = bytes.fromhex(hkdf_exp["k_media_hex"])
 
@@ -123,12 +136,31 @@ class TestCryptoVectors(unittest.TestCase):
         with self.assertRaises(ValueError):
             pyc.decrypt_operation_envelope(k_op, bad["tampered_tag_envelope"])
         with self.assertRaises(ValueError):
+            pyc.decrypt_vsk_envelope(xch_exp["vsk_envelope"], xch_in["vault_id"], bad["wrong_vsk_password"])
+        with self.assertRaises(ValueError):
             pyc.decrypt_media_stream(
                 k_media, ss_in["media_id"], ss_in["key_epoch"], pyc.from_b64u(bad["truncated_media_b64u"])
             )
         with self.assertRaises(ValueError):
             pyc.decrypt_media_stream(
                 k_media, ss_in["media_id"], ss_in["key_epoch"], pyc.from_b64u(bad["trailing_media_b64u"])
+            )
+        with self.assertRaises(ValueError):
+            pyc.decrypt_media_stream(
+                k_media, ss_in["media_id"], ss_in["key_epoch"], pyc.from_b64u(bad["bad_ntrm_magic_b64u"])
+            )
+        with self.assertRaises(ValueError):
+            pyc.decrypt_media_stream(
+                k_media, bad["wrong_media_id"], ss_in["key_epoch"], pyc.from_b64u(ss_exp["encrypted_blob_b64u"])
+            )
+        with self.assertRaises(ValueError):
+            pyc.unseal_epoch_key_for_device(
+                pyc.from_b64u(pairing_in["device_b_pub_b64u"]),
+                pyc.from_b64u(pairing_in["device_b_priv_b64u"]),
+                pairing_exp["sealed_epoch2_for_b"],
+                pairing_in["context"]["vault_id"],
+                2,
+                bad["wrong_wrap_device_id"],
             )
 
     def test_bidirectional_ts_generated_ciphertexts_decrypt_in_python(self) -> None:

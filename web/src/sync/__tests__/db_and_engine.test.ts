@@ -228,4 +228,25 @@ describe('Phase 4 & 5: Dexie v2 Migration, Atomic Outbox, DAG Conflicts & Depend
     const extraQueued = await enqueueExistingVaultSnapshot();
     expect(extraQueued).toBe(0);
   });
+
+  it('operates locally offline without any sync configuration or server', async () => {
+    expect(await db.sync_state.get('vault_id')).toBeUndefined();
+    const catId = await saveCategory({ name: 'Perso', color: '#10B981', sort_order: 1 });
+    const noteId = await saveNote({
+      title: 'Brouillon local',
+      content: 'Sans serveur #local',
+      category_id: catId,
+      created_at: '',
+      updated_at: '',
+      is_deleted: false,
+    });
+    await addTagToNote(noteId, 'offline');
+    await deleteNote(noteId);
+    expect((await db.notes.get(noteId))?.is_deleted).toBe(true);
+    await restoreNote(noteId);
+    const saved = await db.notes.get(noteId);
+    expect(saved?.is_deleted).toBe(false);
+    expect(saved?.title).toBe('Brouillon local');
+    expect(await db.sync_operations.count()).toBe(0);
+  });
 });
