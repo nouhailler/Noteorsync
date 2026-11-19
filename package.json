@@ -1,0 +1,15 @@
+{
+  "name": "noteor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=noteor-web",
+    "build": "npm run build --workspace=noteor-web",
+    "preview": "npm run preview --workspace=noteor-web",
+    "lint": "npm run lint --workspace=noteor-web"
+  }
+}

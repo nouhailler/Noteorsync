@@ -1,0 +1,42 @@
+# Environnement virtuel
+venv/
+.venv/
+env/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Données utilisateur (base SQLite + médias)
+*.db
+*.db-shm
+*.db-wal
+media/
+*.wav
+*.mp3
+*.png
+*.jpg
+*.jpeg
+
+# Exception : captures d'écran du README (versionnées)
+!docs/screenshots/*.png
+
+# IDE / outils
+.vscode/
+.idea/
+*.swp
+*~
+
+# React / Node
+web/node_modules/
+web/dist/
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+*.deb
