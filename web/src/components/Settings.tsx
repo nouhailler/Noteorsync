@@ -3,6 +3,7 @@ import { ArrowLeft, Key, RefreshCw, Check, AlertCircle, ExternalLink, Upload, Do
 import { fetchFreeModels, loadSettings, saveSettings, type OpenRouterModel } from '../services/openrouter';
 import { exportAllNotes, importNotes, type ExportData } from '../db';
 import HelpModal from './HelpModal';
+import SyncModal from './SyncModal';
 
 const HELP_SECTIONS = [
   {
@@ -137,6 +138,9 @@ export default function Settings({ onBack }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+        {/* Section Synchronisation E2EE */}
+        <SyncModal embedded />
+
         {/* Section OpenRouter */}
         <section>
           <div className="flex items-center gap-2 mb-3">

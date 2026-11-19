@@ -1,0 +1,23 @@
+{
+  "pairing_secret_hex": "4444444444444444444444444444444444444444444444444444444444444444",
+  "pairing_nonce_hex": "5555555555555555555555555555555555555555555555555555555555555555",
+  "context": {
+    "vault_id": "550e8400-e29b-41d4-a716-446655440000",
+    "pairing_id": "550e8400-e29b-41d4-a716-446655440030",
+    "device_a_id": "550e8400-e29b-41d4-a716-446655440001",
+    "device_b_id": "550e8400-e29b-41d4-a716-446655440009",
+    "session_nonce_b": "ZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZm"
+  },
+  "bundle_nonce_hex": "777777777777777777777777777777777777777777777777",
+  "bundle": {
+    "vault_id": "550e8400-e29b-41d4-a716-446655440000",
+    "vsk_b64u": "EBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBA",
+    "current_key_epoch": 1,
+    "epoch_keys": {
+      "1": "w32HFd5Om6iceHlBCwXlfhgl0Q_QjGrkGwU0xX4W5yo"
+    }
+  },
+  "device_b_pub_b64u": "gykN_uk_g_pNWA_8jt69FrM0Pqvt7R-r_86rZgQrCjI",
+  "device_b_priv_b64u": "eNGsgKbddYbctQ59S4wPGhiR2lLIkgVLJMR3N55Sjyo",
+  "epoch2_root_hex": "8888888888888888888888888888888888888888888888888888888888888888"
+}

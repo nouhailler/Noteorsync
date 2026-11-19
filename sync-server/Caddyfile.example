@@ -1,0 +1,8 @@
+# Exemple de configuration Caddy avec TLS automatique (remplacer par votre domaine ou hôte Tailscale)
+sync.exemple.org {
+    reverse_proxy noteor-sync:8787
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+    }
+}

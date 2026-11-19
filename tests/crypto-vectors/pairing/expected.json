@@ -1,0 +1,10 @@
+{
+  "secret_proof_hmac": "N8zOukmNJ5B9zNPJxZJEtPUBTr2u_TvdldP3pZTSPsE",
+  "k_pair_hex": "44f50341bbaa390972017c6d0903c2d5b14be6b7a7bd7e97f62e52e798ab4f77",
+  "encrypted_bundle": {
+    "nonce": "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+    "ciphertext": "k-hmMA2FtiOF57H4KTX0YWnY4_WEixsJQS3MkUA4CJ1ueMQYKhYPy3YUSXWgy9ZglYfbXowQN2mdPIe_eBRLB6RUr3P9aKq28U9tXknsknjskOxrUvMC7YWzi2pVaxYY1ZcGxmIEF5qbBWaoobaPvleKi57_uXKHCmEOU8KRtR9BiGec5WsuRpxTYFx51_1WwFYs4fWCJB1Co8loZuD1A_J-lMhuTMvQzJUrxj8oAWWkv4ppV56aJsqGzgMOQVxistZzwO-AhTzrA1nDzCkeHbU0Yw"
+  },
+  "confirm_hmac": "THwXZE0oXDmeUj7wZX-JdZ1-Ol8XDf-UvL3NhJK8wdc",
+  "sealed_epoch2_for_b": "Dj_FzYJLZJLT6r2-bayy5uM4-TWofrP0EhN5Ph5C0wPzsb55iY1-ECMJD6dLjNhaiG5a4h043HxV9d3fu-xb7ycqsMQvnXcuzfRj2zI6Y66B6WrXU-3masApYKXYXFQBM7H_81zBuc9gwVtwGXdj36S3o6SSV3SClZ2oJG16B18ouWwVpbSQWB7QGbMBgUNC7ZqaQM192ssqjr_cnX4VvaYP66BA9UCwH6ZdOcRI8n-hzrm_IcYu2H1aALVRMs7o3vGnSka1elswFtMNvw_LrZh4qvd5y0BWjjeFrBPLPaGhGvClHdRxO80Pv94b_oN60v4SIMpvuda68vR81QN4DSRbC5KaISrCClJz4Fnt-v9blNhuKA"
+}

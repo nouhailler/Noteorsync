@@ -1,0 +1,31 @@
+{
+  "aad_utf8": "{\"crypto_version\":1,\"device_id\":\"550e8400-e29b-41d4-a716-446655440001\",\"device_seq\":\"184\",\"key_epoch\":1,\"operation_id\":\"550e8400-e29b-41d4-a716-446655440002\",\"protocol_version\":1,\"vault_id\":\"550e8400-e29b-41d4-a716-446655440000\"}",
+  "envelope": {
+    "protocol_version": 1,
+    "crypto_version": 1,
+    "key_epoch": 1,
+    "vault_id": "550e8400-e29b-41d4-a716-446655440000",
+    "device_id": "550e8400-e29b-41d4-a716-446655440001",
+    "operation_id": "550e8400-e29b-41d4-a716-446655440002",
+    "device_seq": "184",
+    "nonce": "ICAgICAgICAgICAgICAgICAgICAgICAg",
+    "ciphertext": "CbTwT-Uu3Sl4I1N3yHycT7fT87_Zu-MIcE1qf-DA4CAVLs04WjQFcnT-IK4G484cx6vlOYQpk22j8P0A13WCVNqIxPlCjH4M-d9rpEg8RDwoSREUAGJW7LFWIV92Ymu3wjalQUaDaTYCrEFOlFK7W2bZjxP1nF3AbjKCwgU5p8fcPj9P_cGWp2lEr9Rgry2OQlZB6aPNDZo0fbAtUaQPcmJbQskaoSdjN2maIxjExHdYIjcjdYoUdTgKT1jwOfK7ysxa2nu6o20VFyAmIdnVySiQ3uCX8oJ282iljp0aXH2lv0UJ2axIeOMBJgwt9EJj-d3_sN5PFbJOaMw5vyqd37rD_iO84mqjP3SBGP6TLMprO9MFkMvjcTVUt8QQTFLJOay13sdkGCnONyy15OqMhkqOpSTVqFhMYammS2h0D5TG-bplRQkIivefAlJeo-JQuhloD45wY6UvOq_31gw4cy_PFrsxyLryP1RNREOSL-oHoSGNpFShTU3u6ZIy6jDJqXFvmTSP-esz8r4cBP4EtWAyoSk_8Fk1rvXKfyfgFxZL72UwdSEjwP0s808zfUVtoMbhRX3w9d_qZkvDZb5asuaphm4yw5lZ1SbSQa65Qnc2x-OYmPvxTQcNjywaxpIUkIpS3CP9dIpSUjprp2OlokafTkBwP3q06YBSxw0rUXDM0j9V6oihO8OMXGLCkSwnSVgFJ0VF1EmK3RU"
+  },
+  "vsk_envelope": {
+    "envelope_version": 1,
+    "kdf": {
+      "algorithm": "argon2id13",
+      "salt": "AAECAwQFBgcICQoLDA0ODw",
+      "memory_kib": 65536,
+      "iterations": 3,
+      "parallelism": 1,
+      "output_length": 32
+    },
+    "aead": {
+      "algorithm": "xchacha20poly1305-ietf",
+      "nonce": "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw",
+      "ciphertext": "xSgS6TCQgeKQzQcnnnsxnfUUuGkXHaJ0X1dcfdxDQ7sNbbbCLfYipqQNBgu5X-di"
+    }
+  },
+  "expected_vsk_hex": "1010101010101010101010101010101010101010101010101010101010101010"
+}

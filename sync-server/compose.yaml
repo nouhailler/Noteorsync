@@ -1,0 +1,31 @@
+services:
+  noteor-sync:
+    build: .
+    container_name: noteor-sync-server
+    restart: unless-stopped
+    environment:
+      NOTEOR_DATA_DIR: /data
+      NOTEOR_CORS_ORIGINS: "https://votre-pwa.netlify.app,http://localhost:3000"
+    volumes:
+      - noteor_sync_data:/data
+    ports:
+      - "127.0.0.1:8787:8787"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: noteor-sync-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.example:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - noteor-sync
+
+volumes:
+  noteor_sync_data:
+  caddy_data:
+  caddy_config:

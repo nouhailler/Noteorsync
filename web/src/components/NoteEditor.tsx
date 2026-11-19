@@ -60,7 +60,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
-  db, saveNote, getNoteTags, addTagToNote, removeTagFromNote,
+  db, saveNote, deleteNote, getNoteTags, addTagToNote, removeTagFromNote,
   getNoteAttachments, addAttachment, deleteAttachment,
   now, updateWikilinksOnRename, getBacklinks,
 } from '../db';
@@ -74,13 +74,18 @@ interface Props {
   onBack: () => void;
   onSaved: (note: Note) => void;
   onTagClick: (tag: Tag) => void;
-  onWikilinkClick: (title: string, id?: number) => void;
+  onWikilinkClick: (title: string, target?: number | string) => void;
 }
 
-// [[Title|id]] → [Title](wikilink-id:id:Title)   canonical (ID-based)
-// [[Title]]    → [Title](wikilink:Title)           legacy (title-based fallback)
+// [[Title|@uuid]] → [Title](wikilink-uuid:uuid:Title)   canonical V1 (UUID-based)
+// [[Title|id]]    → [Title](wikilink-id:id:Title)       legacy numeric fallback
+// [[Title]]       → [Title](wikilink:Title)             legacy title fallback
 function preprocessWikilinks(content: string): string {
   let result = content.replace(
+    /\[\[([^\]|[\n]+)\|@([0-9a-f-]{36})\]\]/gi,
+    (_, title, uuid) => `[${title}](wikilink-uuid:${uuid.toLowerCase()}:${encodeURIComponent(title)})`,
+  );
+  result = result.replace(
     /\[\[([^\]|[\n]+)\|(\d+)\]\]/g,
     (_, title, id) => `[${title}](wikilink-id:${id}:${encodeURIComponent(title)})`,
   );
@@ -123,8 +128,8 @@ export default function NoteEditor({ note, onBack, onSaved, onTagClick, onWikili
 
   // Backlinks: notes that link to the current note (reactive, updates live)
   const backlinks = useLiveQuery(
-    () => (noteIdRef.current ? getBacklinks(noteIdRef.current, title) : Promise.resolve([])),
-    [title],
+    () => (noteIdRef.current ? getBacklinks(noteIdRef.current, title, note.sync_id) : Promise.resolve([])),
+    [title, note.id, note.sync_id],
   ) ?? [];
 
   useEffect(() => {
@@ -202,12 +207,12 @@ export default function NoteEditor({ note, onBack, onSaved, onTagClick, onWikili
       setWikilinkQuery(null);
     } else if (e.key === 'Enter' && wikilinkSuggestions.length > 0) {
       e.preventDefault();
-      insertWikilink(wikilinkSuggestions[0].id!, wikilinkSuggestions[0].title);
+      insertWikilink(wikilinkSuggestions[0]);
     }
   }
 
-  // Insert [[Title|id]] at the current [[ position
-  function insertWikilink(id: number, noteTitle: string) {
+  // Insert [[Title|@uuid]] (canonical) or [[Title|id]] fallback at the current [[ position
+  function insertWikilink(targetNote: Note) {
     const ta = textareaRef.current;
     if (!ta) return;
     const cursor = ta.selectionStart;
@@ -215,7 +220,8 @@ export default function NoteEditor({ note, onBack, onSaved, onTagClick, onWikili
     const match = before.match(/\[\[([^\]|[\n]*)$/);
     if (!match) return;
     const start = cursor - match[0].length;
-    const replacement = `[[${noteTitle}|${id}]]`;
+    const targetRef = targetNote.sync_id ? `@${targetNote.sync_id}` : String(targetNote.id!);
+    const replacement = `[[${targetNote.title}|${targetRef}]]`;
     const newContent = content.slice(0, start) + replacement + content.slice(cursor);
     setContent(newContent);
     setDirty(true);
@@ -317,8 +323,28 @@ export default function NoteEditor({ note, onBack, onSaved, onTagClick, onWikili
 
   // ReactMarkdown custom <a> handler
   function WikilinkAnchor({ href, children }: { href?: string; children?: React.ReactNode }) {
+    if (href?.startsWith('wikilink-uuid:')) {
+      // [[Title|@uuid]] — resolve by sync_id
+      const rest = href.slice('wikilink-uuid:'.length);
+      const colon = rest.indexOf(':');
+      const syncId = rest.slice(0, colon);
+      const noteTitle = decodeURIComponent(rest.slice(colon + 1));
+      const exists = allNotes.some(n => n.sync_id === syncId);
+      return (
+        <button
+          onClick={() => onWikilinkClick(noteTitle, syncId)}
+          className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-sm font-medium no-underline transition-colors
+            ${exists ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100' : 'text-red-500 bg-red-50 hover:bg-red-100'}`}
+          title={exists ? `Ouvrir « ${noteTitle} »` : `Note introuvable : « ${noteTitle} »`}
+        >
+          <Link2 size={11} className="shrink-0" />
+          {children}
+          {!exists && <span className="text-[9px] font-bold">?</span>}
+        </button>
+      );
+    }
     if (href?.startsWith('wikilink-id:')) {
-      // [[Title|id]] — resolve by ID
+      // [[Title|id]] — resolve by numeric local ID (legacy)
       const rest = href.slice('wikilink-id:'.length);
       const colon = rest.indexOf(':');
       const id = Number(rest.slice(0, colon));
@@ -492,7 +518,7 @@ export default function NoteEditor({ note, onBack, onSaved, onTagClick, onWikili
             wikilinkSuggestions.map(n => (
               <button
                 key={n.id}
-                onMouseDown={e => { e.preventDefault(); insertWikilink(n.id!, n.title); }}
+                onMouseDown={e => { e.preventDefault(); insertWikilink(n); }}
                 className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-left hover:bg-indigo-50 active:bg-indigo-100 transition-colors border-b border-gray-50 last:border-0"
               >
                 <Link2 size={13} className="text-indigo-400 shrink-0" />
@@ -584,7 +610,9 @@ export default function NoteEditor({ note, onBack, onSaved, onTagClick, onWikili
         <button
           onClick={async () => {
             if (confirm('Mettre cette note à la corbeille ?')) {
-              await saveNote({ ...note, id: noteIdRef.current });
+              if (noteIdRef.current) {
+                await deleteNote(noteIdRef.current);
+              }
               onBack();
             }
           }}

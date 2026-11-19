@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Plus, SlidersHorizontal, Mic, Image, Video, Trash2, RotateCcw, Settings, HelpCircle, CalendarDays, Network, X, CheckSquare } from 'lucide-react';
+import { Search, Plus, SlidersHorizontal, Mic, Image, Video, Trash2, RotateCcw, Settings, HelpCircle, CalendarDays, Network, X, CheckSquare, Shield } from 'lucide-react';
 import { db, getNotes, restoreNote, permanentlyDeleteNote } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import HelpModal from './HelpModal';
 import BulkActionBar from './BulkActionBar';
+import SyncModal from './SyncModal';
 import type { Note, FilterType, DateFilter } from '../types';
 
 const HELP_SECTIONS = [
@@ -77,10 +78,16 @@ export default function NoteList({
   onSearchChange,
 }: Props) {
   const [showHelp, setShowHelp] = useState(false);
+  const [showSync, setShowSync] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
+
+  const openConflictsCount = useLiveQuery(
+    () => db.sync_conflicts.where('status').equals('open').count(),
+    [],
+  ) ?? 0;
 
   const notes = useLiveQuery(
     () => getNotes({
@@ -224,6 +231,18 @@ export default function NoteList({
             <HelpCircle size={19} />
           </button>
           <button
+            onClick={() => setShowSync(true)}
+            className="p-2 rounded-lg text-gray-500 active:bg-gray-100 relative"
+            aria-label="Synchronisation"
+          >
+            <Shield size={19} className={openConflictsCount > 0 ? 'text-amber-600' : 'text-indigo-600'} />
+            {openConflictsCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+                {openConflictsCount}
+              </span>
+            )}
+          </button>
+          <button
             onClick={onOpenSettings}
             className="p-2 rounded-lg text-gray-400 active:bg-gray-100"
             aria-label="Paramètres"
@@ -357,6 +376,8 @@ export default function NoteList({
           onClose={() => setShowHelp(false)}
         />
       )}
+
+      {showSync && <SyncModal onClose={() => setShowSync(false)} />}
     </div>
   );
 }

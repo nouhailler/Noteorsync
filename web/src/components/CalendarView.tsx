@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, CalendarDays, HelpCircle, Calendar, CalendarRange } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
+import { db, redateNote } from '../db';
 import HelpModal from './HelpModal';
 import type { Note } from '../types';
 
@@ -123,10 +123,7 @@ export default function CalendarView({ onSelectNote, onBack }: Props) {
   // ── Re-datation ───────────────────────────────────────────────────────────
 
   async function redate(noteId: number, newDate: string) {
-    const note = await db.notes.get(noteId);
-    if (!note) return;
-    const time = note.updated_at.slice(11) || '12:00:00';
-    await db.notes.update(noteId, { updated_at: `${newDate} ${time}` });
+    await redateNote(noteId, newDate);
   }
 
   async function commitReschedule() {

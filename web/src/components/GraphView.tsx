@@ -53,10 +53,16 @@ function parseTargetIds(
   content: string,
   sourceId: number,
   noteMap: Map<number, unknown>,
+  syncMap: Map<string, number>,
   titleMap: Map<string, number>,
 ): number[] {
   const out: number[] = [];
-  // [[Title|id]]
+  // [[Title|@uuid]] canonical V1
+  for (const [, , uuid] of content.matchAll(/\[\[([^\]|[\n]+)\|@([0-9a-f-]{36})\]\]/gi)) {
+    const n = syncMap.get(uuid.toLowerCase());
+    if (n !== undefined && n !== sourceId && noteMap.has(n)) out.push(n);
+  }
+  // [[Title|id]] legacy numeric
   for (const [, , id] of content.matchAll(/\[\[([^\]|[\n]+)\|(\d+)\]\]/g)) {
     const n = Number(id);
     if (n !== sourceId && noteMap.has(n)) out.push(n);
@@ -122,17 +128,20 @@ export default function GraphView({ onSelectNote, onBack }: Props) {
     const W = svg?.clientWidth ?? 600;
     const H = svg?.clientHeight ?? 500;
 
-    const noteMap  = new Map(notes.map(n => [n.id!, n]));
+    const noteMap = new Map(notes.map(n => [n.id!, n]));
+    const syncMap = new Map(
+      notes.filter(n => n.sync_id).map(n => [n.sync_id!.toLowerCase(), n.id!]),
+    );
     const titleMap = new Map(notes.map(n => [n.title.toLowerCase(), n.id!]));
 
     // Build edge list (deduplicated, undirected)
-    const edgeSet  = new Set<string>();
+    const edgeSet = new Set<string>();
     const edges: Edge[] = [];
     const degreeMap = new Map<number, number>();
 
     for (const note of notes) {
       if (!note.id || !note.content.includes('[[')) continue;
-      for (const tid of parseTargetIds(note.content, note.id, noteMap, titleMap)) {
+      for (const tid of parseTargetIds(note.content, note.id, noteMap, syncMap, titleMap)) {
         const key = `${Math.min(note.id, tid)}-${Math.max(note.id, tid)}`;
         if (edgeSet.has(key)) continue;
         edgeSet.add(key);

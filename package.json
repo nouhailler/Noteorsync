@@ -11,5 +11,15 @@
     "build": "npm run build --workspace=noteor-web",
     "preview": "npm run preview --workspace=noteor-web",
     "lint": "npm run lint --workspace=noteor-web"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.4.0",
+    "@types/libsodium-wrappers-sumo": "^0.7.8",
+    "@types/qrcode": "^1.5.6",
+    "canonicalize": "^5.1.0",
+    "fake-indexeddb": "^6.2.8",
+    "libsodium-wrappers-sumo": "^0.8.4",
+    "qrcode": "^1.5.4",
+    "vitest": "^5.1.1"
   }
 }
