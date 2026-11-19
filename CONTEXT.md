@@ -2,165 +2,107 @@
 
 ## Vue d'ensemble
 
-Application PyQt6 de prise de notes avec support audio, images et vidéos, stockage SQLite local.
+Écosystème multi-plateforme de prise de notes **100 % local-first avec synchronisation chiffrée de bout en bout (E2EE)** entre l'application Web/Mobile PWA, l'application Desktop PyQt6 et un serveur relais aveugle auto-hébergé.
 
-- **Version** : 1.0.0
-- **Stack** : Python 3.13, PyQt6, SQLite (`~/.local/share/Noteor/notes.db`)
-- **Venv** : `./venv/` (Python 3.13) — absent de la machine actuelle, dépendances dans le Python système
-- **Dépôt GitHub** : https://github.com/nouhailler/Noteor (commit `8506f89`)
+- **Version** : `1.1.0` (mise à jour le `2026-11-19`)
+- **Dépôt GitHub** : `https://github.com/nouhailler/Noteor`
+- **Documentation complémentaire** : [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md), [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md), [`docs/sync/`](docs/sync/)
 
 ---
 
-## Architecture
+## Architecture actuelle du dépôt
 
 ```
 Noteor/
-├── main.py                   # Point d'entrée
-├── config.py                 # Constantes (chemins, audio, UI)
-├── database.py               # Toute la couche SQLite (Database class)
-├── core/
-│   ├── audio_recorder.py     # AudioRecorder + AudioPlayer (arecord/aplay + sounddevice fallback)
-│   ├── webcam_recorder.py    # WebcamRecorder (ffmpeg + v4l2, SIGINT pour arrêt propre)
-│   └── file_manager.py       # Copie/miniatures images, import texte/vidéo, screenshots
-└── ui/
-    ├── main_window.py        # Fenêtre principale (3 panneaux via QSplitter)
-    ├── editor.py             # EditorPanel — panneau droit (éditeur complet)
-    ├── widgets.py            # NoteItemDelegate, TagChip, AudioPlayerWidget, ImageThumbnailWidget, VideoPlayerWidget
-    └── styles.py             # QSS global
+├── web/                              # PWA Mobile & Desktop (React 18, TypeScript, Vite, Dexie)
+│   ├── public/_headers               # En-têtes Cloudflare Pages (CSP 'wasm-unsafe-eval', cache PWA)
+│   ├── wrangler.toml                 # Configuration déploiement Cloudflare Pages (dist)
+│   ├── vite.config.ts                # Workbox PWA (règle NetworkOnly sur /api/v1/*)
+│   └── src/
+│       ├── components/               # NoteList, NoteEditor, GraphView, CalendarView, SyncModal, ConflictResolver…
+│       ├── db/index.ts               # Schéma Dexie (IndexedDB), sync_id UUID, journaux hors-ligne
+│       ├── services/openrouter.ts    # Transcription audio OpenRouter
+│       └── sync/                     # crypto.ts, crypto.worker.ts (Argon2id), vault.ts, engine.ts, ids.ts
+├── sync/desktop/                     # Modules Python prêts à intégrer dans Noteor Desktop (PyQt6)
+│   ├── crypto.py                     # Primitives E2EE via libsodium.so.23 (ctypes, zéro PyNaCl)
+│   ├── sqlite_sync_adapter.py        # Migration SQLite v1 -> v2 WAL, UUID v4, RFC 3339, Wikilinks, tags
+│   └── engine.py                     # Moteur de sync, file d'attente hors-ligne, DAG & client HTTP
+├── sync-server/                      # Serveur relais aveugle zéro-connaissance
+│   ├── app/main.py                   # API FastAPI (/healthz, /api/v1/*) + médias NTRM1
+│   ├── app/stdlib_server.py          # Serveur HTTP/1.1 de repli 100 % stdlib Python
+│   ├── app/services/sync_service.py  # Stockage opérations chiffrées, séquences, époques, médias
+│   ├── app/storage/database.py       # SQLite WAL serveur
+│   ├── compose.yaml & Dockerfile     # Déploiement Docker Compose (+ Caddy TLS optionnel)
+│   └── scripts/backup.sh             # Sauvegarde à chaud SQLite WAL + blobs
+├── sync-server-manager/              # Utilitaire graphique Linux packagé en .deb (Option A Docker)
+│   ├── main.py & manager_core.py     # Lanceur CLI/GUI + gestion compose.yaml, Docker, /healthz
+│   ├── gui_pyqt.py & gui_web.py      # Interface PyQt6 (thème Noteor) + repli Web UI locale sans dépendance
+│   ├── scripts/check_deps.sh         # Contrôle docker, démon, docker compose, curl, sync-server/, port
+│   ├── packaging/                    # DEBIAN/{control,postinst}, .desktop, build_deb.sh
+│   └── dist/noteor-sync-manager_1.1.0_all.deb
+├── docs/
+│   ├── DEPLOYMENT.md                 # Guide pas à pas (Serveur, Mobile Cloudflare Pages, Desktop)
+│   └── sync/                         # Architecture, Crypto, Protocole, Modèle de données & Audits
+└── tests/
+    ├── crypto-vectors/               # Vecteurs croisés Python <-> TypeScript (HKDF, Argon2id, XChaCha20, NTRM1)
+    └── python/                       # Suite unittest (17 tests : crypto, Desktop WAL, serveur/E2E, sync-manager)
 ```
 
-### Schéma SQLite
+---
 
-Tables : `notes`, `categories`, `tags`, `note_tags`, `attachments`
-- `notes` ← `categories` (FK nullable, SET NULL on delete)
-- `notes` ← `attachments` (FK CASCADE on delete)
-- `attachments.type` : `'image'` | `'audio'` | `'video'`
-- Migration automatique au démarrage : si la table `attachments` existante ne contient pas `'video'` dans son CHECK, elle est recréée transparentement.
+## Fonctionnalités implémentées (v1.1.0)
 
-### Rôles QListWidgetItem (`main_window.py`)
+### 1. Application Web / Mobile PWA (`web/`)
+- Création / édition Markdown avec barre d'outils, aperçu temps réel, auto-sauvegarde et liens internes `[[Titre|@uuid]]`
+- Catégories colorées, dossiers, tags normalisés avec déduplication Unicode, sélection multiple et corbeille
+- Filtres de recherche (texte, type, date, catégorie, dossier, tag), vue graphe interactive (`GraphView`) et vue calendrier (`CalendarView`)
+- Enregistrement vocal, capture/import d'images, export/import JSON et transcription audio via OpenRouter
+- **Coffre & Sync E2EE (`SyncModal.tsx`, `ConflictResolver.tsx`)** :
+  - Dérivation Argon2id déportée dans un Web Worker (`crypto.worker.ts`)
+  - Clés maintenues en RAM uniquement avec verrouillage par inactivité et effacement mémoire (`vault.ts`)
+  - Clé de secours 256 bits (`VSK`), jumelage inter-appareils par QR code / JSON (HMAC + enveloppe éphémère)
+  - Résolution visuelle des conflits par DAG de révisions (`Garder locale`, `Prendre distante`, `Garder les deux`, `Fusionner`)
+  - Révocation d'appareil avec rotation d'époque cryptographique (`X25519 crypto_box_seal`)
+- **Déploiement Cloudflare Pages** : configuration prête dans `web/wrangler.toml` et `web/public/_headers` (CSP incluant `'wasm-unsafe-eval'`, exclusion Workbox `NetworkOnly` sur `/api/v1/*`)
 
-- `UserRole + 0` = `ROLE_NOTE_ID`
-- `UserRole + 1` = `ROLE_DATE` (chaîne `"YYYY-MM-DD HH:MM"`)
-- `UserRole + 2` = `ROLE_CAT_COLOR`
-- `UserRole + 3` = `ROLE_AUDIO`
-- `UserRole + 4` = `ROLE_IMAGE`
-- `UserRole + 5` = `ROLE_VIDEO`
+### 2. Serveur relais & Assistant graphique `.deb` (`sync-server/` & `sync-server-manager/`)
+- **Relais aveugle (`sync-server/`)** : FastAPI + SQLite WAL (ou `stdlib_server.py` sans dépendance externe), transport de médias chiffrés par blocs `NTRM1` (`crypto_secretstream_xchacha20poly1305`), Docker Compose (`noteor-sync` + `caddy` optionnel) et sauvegarde à chaud (`scripts/backup.sh`)
+- **Assistant `.deb` (`noteor-sync-manager`)** :
+  - Reprend le thème Indigo/Slate (`#4F46E5` / `#F9FAFB`) et l'icône Noteor (`web/public/icon.svg`)
+  - Vérifie les prérequis système via `scripts/check_deps.sh` (Docker CLI, accès démon Docker, `docker compose` / `docker-compose`, `curl`, fichiers `sync-server/`, port local)
+  - Met à jour de façon paramétrable `sync-server/compose.yaml` (`NOTEOR_DATA_DIR`, `NOTEOR_CORS_ORIGINS` avec fusion de l'URL Cloudflare Pages, port local)
+  - Pilote le conteneur (`docker compose up -d --build noteor-sync`, `restart`, `stop`, `ps`), vérifie `/healthz` (`{"status":"ok","version":"1.1.0"}`) et affiche/filtre les logs Docker (dont suivi `logs -f`)
+  - Génère le paquet Debian `sync-server-manager/dist/noteor-sync-manager_1.1.0_all.deb` via `build_deb.sh`
+
+### 3. Modules Desktop Python (`sync/desktop/`)
+- Intégrables directement dans le dépôt PyQt6 local (`Noteor` Desktop) sans compilation C (`libsodium.so.23` via `ctypes`)
+- Migration SQLite v1 → v2 WAL (`sync_id` UUID v4, dates UTC RFC 3339, Wikilinks `[[Titre|@uuid]]`)
 
 ---
 
-## Fonctionnalités implémentées
+## Rappel — Socle historique Noteor Desktop (dépôt PyQt6 local)
 
-- [x] Création / édition / suppression douce (corbeille) / restauration / suppression définitive de notes
-- [x] Catégories hiérarchiques avec couleur (tree widget, menu contextuel)
-- [x] Tags colorés (chips dans l'éditeur, filtrage dans la liste)
-- [x] Recherche full-text (titre + contenu)
-- [x] Filtre par type : toutes / avec audio / avec images / avec vidéos 🎬
-- [x] **Filtre par date** : aujourd'hui / 7 jours / 30 jours / cette année / période libre (QDateEdit)
-- [x] Éditeur Markdown avec barre de formatage et aperçu HTML (`QTextBrowser`)
-- [x] Auto-sauvegarde 3 s après la dernière frappe
-- [x] **Enregistrement audio** via `arecord` (ALSA) → fichier WAV dans `media/audio/`
-- [x] **Lecture audio** via `aplay` (ALSA)
-- [x] **Import d'images** (copie + miniature Pillow/Qt) dans `media/images/` + `media/thumbnails/`
-- [x] **Capture d'écran** via portail XDG (D-Bus, Wayland) → copie dans `media/images/` + miniature
-- [x] **Import de vidéos** (copie dans `media/video/`, durée via `ffprobe` si dispo)
-- [x] **Enregistrement webcam** via `ffmpeg` + v4l2 → fichier MP4 dans `media/video/` (bouton 🎥 Webcam, indicateur temps écoulé)
-- [x] Import de dossiers de fichiers `.txt`/`.md` comme notes
-- [x] Délégué personnalisé (`NoteItemDelegate`) : titre, date, icônes 🎤/🖼/🎬, bande couleur catégorie
-- [x] Menu principal (Fichier, Affichage, Aide)
-- [x] README.md sur GitHub
+> L'application PyQt6 Desktop complète réside dans le dépôt Desktop séparé ; ce dépôt embarque son module `sync/desktop/` ainsi que les rappels techniques suivants issus des sessions initiales :
+> - **Base locale** : `~/.local/share/Noteor/notes.db` (tables `notes`, `categories`, `tags`, `note_tags`, `attachments` migrées en v2 WAL par `DesktopSyncDatabase`).
+> - **Rôles `QListWidgetItem`** : `UserRole + 0..5` (`ROLE_NOTE_ID`, `ROLE_DATE`, `ROLE_CAT_COLOR`, `ROLE_AUDIO`, `ROLE_IMAGE`, `ROLE_VIDEO`).
+> - **Audio / Capture / Webcam sous Linux** : backend primaire `arecord`/`aplay` (ALSA) avec repli `sounddevice` ; capture d'écran Wayland via portail XDG D-Bus (ou `QT_QPA_PLATFORM=xcb`) ; webcam MP4 via `ffmpeg -f v4l2` (`SIGINT`).
 
 ---
 
-## Bugs corrigés lors de cette session
-
-### Bug 1 — `sounddevice` bloque dans la VM ✅ résolu
-**Solution** : `audio_recorder.py` réécrit avec deux backends :
-1. **Primaire** : `arecord` / `aplay` via `subprocess.Popen` (non-bloquant, ALSA direct)
-2. **Fallback** : `sounddevice` si `arecord` absent (autres plateformes)
-
-### Bug 2 — `date_str` incorrect dans `NoteItemDelegate` ✅ résolu
-`UserRole` → `UserRole + 1` dans `ui/widgets.py`.
-
-### Bug 3 — Capture d'écran noire sur Wayland ✅ résolu
-- `grabWindow(0)` retourne 0×0 (Wayland bloque la capture Qt)
-- **Solution** : portail XDG via D-Bus (`org.freedesktop.portal.Desktop`) exécuté dans un sous-processus Python pour éviter le conflit GLib/Qt
-- `main.py` force `QT_QPA_PLATFORM=xcb` si `WAYLAND_DISPLAY` est défini
-- Compte à rebours 3 s sur le bouton "📷 Capture" pour laisser le temps de préparer l'écran
-
-### Bug 4 — Bouton 🗑 des images invisible ✅ résolu
-Zone pièces jointes (`attach_scroll`) passée de `100 px` à `140 px` — `ImageThumbnailWidget` fait 120 px, le bouton supprimer était rogné.
-
-### Bug 5 — Sélection disparaît lors d'un changement de filtre ✅ résolu
-`setCurrentItem` appelé **hors de la boucle** d'ajout d'items (+ `scrollToItem`). Appel pendant la boucle empêchait Qt de calculer correctement l'état visuel de la sélection.
-
----
-
-## Environnement VM — points de vigilance
-
-| Sujet | État |
-|---|---|
-| Audio (`sounddevice`) | Non fonctionnel — PortAudio/pipewire bloque. `arecord`/`aplay` utilisés à la place. |
-| Capture d'écran Qt | `grabWindow(0)` retourne une image noire. Portail XDG utilisé à la place. |
-| `venv` | Absent — dépendances installées dans le Python système (`python3`) |
-| Commande Python | `python3` (pas `python`) |
-| `ffprobe` | Non installé — durée des vidéos affichée `--:--` si absent |
-| `ffmpeg` | Non installé — **requis pour l'enregistrement webcam**. `sudo apt install ffmpeg` |
-| Webcam | `/dev/video0` et `/dev/video1` détectés dans la VM |
-
----
-
-## État de la base de données (au 2026-03-20)
-
-- 1 note existante (id=1, titre="1 ere note")
-- 2 pièces jointes audio : `audio_20260320_133847.wav` (5.6 s), `audio_20260320_133944.wav` (4.6 s)
-- Table `attachments` migrée pour accepter le type `'video'`
-
----
-
-## Session du 2026-03-21
-
-### Enregistrement webcam ✅ implémenté
-
-- Nouveau fichier `core/webcam_recorder.py` : classe `WebcamRecorder` (QObject + signaux PyQt6)
-  - Backend : `ffmpeg -f v4l2` — SIGINT pour arrêt propre (finalise le MP4)
-  - Détection automatique du device (`/dev/video*`)
-  - Double tentative : d'abord `-input_format mjpeg`, fallback sans format forcé
-  - Délai de 800 ms pour détecter les crashs au démarrage avant d'émettre `recording_started`
-- `ui/editor.py` :
-  - Bouton "🎥 Webcam" (checkable, style `record_btn`)
-  - Indicateur "🔴 Enregistrement webcam…" + compteur temps écoulé MM:SS
-  - 4 méthodes : `_toggle_webcam_recording`, `_on_webcam_started`, `_on_webcam_stopped`, `_on_webcam_error`
-  - La vidéo enregistrée est sauvée comme pièce jointe `type='video'` (même chemin que les vidéos importées)
-- `ui/main_window.py` : instanciation de `WebcamRecorder`, passé à `EditorPanel`
-- **Dépendance requise** : `sudo apt install ffmpeg` (non présent dans la VM au moment du dev)
-
----
-
-## Prochaines étapes suggérées
-
-1. Export PDF / HTML des notes
-2. Transcription audio via Whisper (locale)
-3. Raccourcis clavier pour les pièces jointes
-4. Tri de la liste des notes (par titre, date de création, date de modification)
-5. Thème sombre
-
----
-
-## Commandes utiles
+## Commandes de vérification et de build
 
 ```bash
-# Lancer l'application
-python3 main.py
+# 1. Build et lint du frontend PWA
+npm install
+npm run lint
+npm run build
 
-# Depuis un venv si disponible
-source venv/bin/activate && python3 main.py
+# 2. Suite de tests TypeScript / E2E live (Vitest)
+npx vitest run
 
-# Installer les dépendances
-pip install PyQt6 numpy pillow markdown sounddevice
+# 3. Suite de tests Python (crypto, adaptateur Desktop, serveur, sync-manager)
+python3 -m unittest discover -s tests/python -v
 
-# Dépendances système pour audio et capture (Debian/Ubuntu)
-sudo apt install alsa-utils python3-dbus python3-gi
-
-# Vérifier les devices audio ALSA
-arecord -l
+# 4. Construire le paquet .deb de l'assistant serveur
+bash sync-server-manager/packaging/build_deb.sh
 ```

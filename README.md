@@ -23,7 +23,9 @@
 |---|---|---|---|
 | **Mobile / Web (PWA)** | Application client hors-ligne & interface mobile/bureau | React 18, TypeScript, Dexie (IndexedDB), libsodium WASM, Workbox | `web/` |
 | **Serveur Sync (`sync-server/`)** | Relais aveugle zéro-connaissance (opérations + médias `NTRM1`) | FastAPI (ou stdlib Python), SQLite WAL, stockage blobs | `sync-server/` |
+| **Assistant Serveur (`.deb`)** | Interface graphique Noteor pour configurer et piloter Docker Compose | Python 3.11+, PyQt6 (+ repli Web UI stdlib), Bash, `dpkg-deb` | `sync-server-manager/` |
 | **Modules Desktop** | Adaptateur SQLite WAL + moteur E2EE prêts à intégrer dans PyQt6 | Python 3.11+, `sqlite3`, `libsodium.so.23` (`ctypes`) | `sync/desktop/` |
+| **Spécifications & Tests** | Architecture E2EE, guide de déploiement, vecteurs crypto & E2E | Markdown, Vitest (TS), `unittest` (Python) | `docs/`, `tests/` |
 
 ---
 
@@ -195,13 +197,13 @@ npm run build      # Génération icônes PWA + bundle web/dist
 # Tests TypeScript + Vitest (incluant E2E live PWA <-> Serveur Sync <-> Desktop Python)
 npx vitest run
 
-# Tests Python (vecteurs crypto, adaptateur Desktop SQLite WAL, serveur HTTP & E2E)
+# Tests Python (vecteurs crypto, adaptateur Desktop SQLite WAL, serveur HTTP, E2E & gestionnaire .deb)
 python3 -m unittest discover -s tests/python -v
 ```
 
 ---
 
-## ✨ Fonctionnalités Noteor PWA & Sync
+## ✨ Fonctionnalités Noteor PWA, Sync & Outils
 
 - **Éditeur Markdown complet** : barre de formatage, aperçu temps réel, auto-sauvegarde, liens `[[Note|@uuid]]`, vue graphe interactive et vue calendrier.
 - **Médias chiffrés (`NTRM1`)** : enregistrement vocal, capture photo/import d'images, lecteur intégré et chiffrement par flux `crypto_secretstream_xchacha20poly1305` par blocs.
@@ -212,6 +214,16 @@ python3 -m unittest discover -s tests/python -v
   - Jumelage rapide entre appareils par **QR code / JSON** (HMAC + enveloppe éphémère) ;
   - **Détection de conflits par DAG de révisions** sans écrasement silencieux (`Garder locale`, `Prendre distante`, `Garder les deux`, `Fusionner`) ;
   - **Révocation d'appareil** avec rotation vers l'époque cryptographique suivante (`X25519 crypto_box_seal`).
+- **Assistant serveur `.deb` (`noteor-sync-manager`)** : interface graphique PyQt6 (+ repli Web UI sans dépendance) pour vérifier Docker/Compose, configurer `NOTEOR_CORS_ORIGINS` / `NOTEOR_DATA_DIR`, démarrer `noteor-sync`, contrôler `/healthz` et consulter/filtrer les logs Docker.
+
+---
+
+## 📚 Documentation
+
+- [`CHANGELOG.md`](CHANGELOG.md) — Historique des versions (`v1.0.0`, `v1.1.0`)
+- [`CONTEXT.md`](CONTEXT.md) — Architecture complète du dépôt et état technique
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — Guide pas à pas (Serveur Sync, Cloudflare Pages, Desktop)
+- [`sync-server-manager/README.md`](sync-server-manager/README.md) — Construction et usage du paquet `.deb`
 
 ---
 
