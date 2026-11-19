@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       NOTEOR_DATA_DIR: /data
-      NOTEOR_CORS_ORIGINS: "https://votre-pwa.netlify.app,http://localhost:3000"
+      NOTEOR_CORS_ORIGINS: "https://noteor-pwa.pages.dev,https://votre-domaine.pages.dev,http://localhost:3000"
     volumes:
       - noteor_sync_data:/data
     ports:

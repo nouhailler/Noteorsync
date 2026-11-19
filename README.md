@@ -2,303 +2,209 @@
 
 # 📓 Noteor
 
-**Application de prise de notes — 100 % locale, sans cloud**
+**Application de prise de notes — 100 % locale avec synchronisation chiffrée de bout en bout (E2EE)**
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://python.org)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://typescriptlang.org)
-[![SQLite](https://img.shields.io/badge/SQLite-local-003B57?logo=sqlite&logoColor=white)](https://sqlite.org)
-[![Netlify](https://img.shields.io/badge/Netlify-deploy-00C7B7?logo=netlify&logoColor=white)](https://netlify.com)
+[![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)](https://sqlite.org)
+[![Cloudflare Pages](https://img.shields.io/badge/Cloudflare%20Pages-PWA-F38020?logo=cloudflarepages&logoColor=white)](https://pages.cloudflare.com)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-*Prenez des notes en Markdown, enregistrez votre voix, organisez dans des dossiers et transcrivez vos audios par IA — tout stocké localement sur votre appareil.*
+*Prenez des notes en Markdown, enregistrez votre voix, liez vos idées en graphe et synchronisez vos appareils en toute confidentialité grâce au chiffrement de bout en bout XChaCha20-Poly1305 & Argon2id.*
 
 </div>
 
 ---
 
-## 🗂️ Deux versions
+## 🗂️ Architecture multi-plateforme
 
-| | Version desktop (Python) | Version web (React) |
-|---|---|---|
-| **Plateforme** | Linux | Navigateur / Mobile (PWA) |
-| **Stockage** | SQLite + fichiers locaux | IndexedDB (navigateur) |
-| **Déploiement** | Application native | Netlify |
-| **Dossier** | racine | `web/` |
-
----
-
-## 📸 Captures d'écran
-
-<div align="center">
-
-### 🖥️ Version web — bureau
-
-<img src="docs/screenshots/01-notes-preview.png" alt="Trois panneaux : filtres, liste des notes et éditeur avec aperçu Markdown" width="100%">
-
-<sub>Trois panneaux — filtres & organisation · liste des notes · éditeur avec **aperçu Markdown** en temps réel, wikilinks et **backlinks** automatiques.</sub>
-
-<br><br>
-
-<img src="docs/screenshots/02-markdown-editor.png" alt="Éditeur Markdown avec barre de formatage et wikilinks" width="100%">
-
-<sub>Mode édition — barre de formatage (gras, italique, code, liste, titre, lien) et liens `[[Note]]`.</sub>
-
-<br><br>
-
-<table>
-<tr>
-<td width="50%"><img src="docs/screenshots/03-graph.png" alt="Vue graphique des liens entre notes" width="100%"></td>
-<td width="50%"><img src="docs/screenshots/04-calendar.png" alt="Vue calendrier des notes" width="100%"></td>
-</tr>
-<tr>
-<td align="center"><sub><b>Graph View</b> — visualisation interactive des liens (zoom, déplacement, clic pour ouvrir).</sub></td>
-<td align="center"><sub><b>Calendrier</b> — notes réparties par date, colorées selon leur catégorie.</sub></td>
-</tr>
-</table>
-
-<br>
-
-### 📱 Version web — mobile (PWA)
-
-<table>
-<tr>
-<td width="50%"><img src="docs/screenshots/05-mobile-list.png" alt="Liste des notes sur mobile" width="100%"></td>
-<td width="50%"><img src="docs/screenshots/06-mobile-editor.png" alt="Éditeur de note sur mobile" width="100%"></td>
-</tr>
-<tr>
-<td align="center"><sub>Liste des notes — bandes de couleur par catégorie, indicateurs 🎤 audio / 🖼 image.</sub></td>
-<td align="center"><sub>Éditeur plein écran — tags, aperçu Markdown et backlinks.</sub></td>
-</tr>
-</table>
-
-</div>
+| Composant | Rôle | Technologies | Dossier |
+|---|---|---|---|
+| **Mobile / Web (PWA)** | Application client hors-ligne & interface mobile/bureau | React 18, TypeScript, Dexie (IndexedDB), libsodium WASM, Workbox | `web/` |
+| **Serveur Sync (`sync-server/`)** | Relais aveugle zéro-connaissance (opérations + médias `NTRM1`) | FastAPI (ou stdlib Python), SQLite WAL, stockage blobs | `sync-server/` |
+| **Modules Desktop** | Adaptateur SQLite WAL + moteur E2EE prêts à intégrer dans PyQt6 | Python 3.11+, `sqlite3`, `libsodium.so.23` (`ctypes`) | `sync/desktop/` |
 
 ---
 
-## 📱 Version web — React + PWA
+## 🚀 Déploiement complet (Serveur, Mobile Cloudflare & Desktop)
 
-### Fonctionnalités
-
-#### 📝 Notes & Édition
-- Éditeur **Markdown** avec barre de formatage (gras, italique, code, liste, titre)
-- **Aperçu** en temps réel du rendu Markdown
-- **Auto-sauvegarde** 2,5 secondes après la dernière frappe
-- **Tags colorés** — cliquer sur un tag dans l'éditeur filtre la liste
-
-#### 📂 Organisation
-- **Catégories colorées** et **dossiers** (panneau latéral)
-- **Filtres** : par type de contenu, date, catégorie, dossier, tag
-- **Corbeille** — suppression douce, restauration, suppression définitive
-
-#### 🎙️ Audio & Médias
-- **Enregistrement vocal** depuis le navigateur (compatible iOS / Android)
-- **Import d'images** depuis la galerie ou l'appareil photo
-- **Lecteur audio** intégré avec contrôles lecture / pause
-
-#### 🤖 Transcription IA
-- Connexion à **OpenRouter** (modèles gratuits `:free`)
-- Bouton **IA** dans l'éditeur : transcrit l'audio enregistré et insère le texte dans la note
-- Modèles recommandés : Gemini Flash, etc.
-
-#### 💾 Import / Export
-- **Export JSON** : toutes les notes avec tags et noms des fichiers joints
-- **Import JSON** : chargement d'un fichier exporté, déduplication automatique
-
-#### 📲 PWA (Progressive Web App)
-- Installable sur iPhone et Android depuis le navigateur
-- Fonctionne **hors connexion** après la première visite
-- Icône sur l'écran d'accueil
+> Un guide détaillé complémentaire (avec modèles `systemd`, `cloudflared` et dépannage) est également disponible dans [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ---
 
-### Interface web
+### 1️⃣ Déploiement du serveur `sync-server/` sur votre machine
 
-```
-Mobile                          Desktop
-──────────────────              ──────────────────────────────────────────────
-┌──────────────────┐            ┌────────────┬────────────┬───────────────────┐
-│ Noteor  ? ⚙  ☰  │            │  Filtres   │  Liste     │  Éditeur          │
-│ 🔍 Rechercher... │            │            │            │                   │
-├──────────────────┤            │ Type       │ • Note 1🎤 │  Titre            │
-│ • Note 1    🎤   │            │ Date       │ • Note 2   │  tag1  tag2       │
-│   Contenu...     │            │ Catégorie  │ • Note 3🖼 │  ─────────────    │
-├──────────────────┤            │ Dossier    │            │  Markdown...      │
-│ • Note 2         │            │ Tags       │            │                   │
-├──────────────────┤            │            │            │ [Audio] [Photo]   │
-│ + Nouvelle note  │            │ 🗑 Corbeille│            │ [IA]              │
-└──────────────────┘            └────────────┴────────────┴───────────────────┘
-```
+Le serveur Sync fonctionne entièrement en relais aveugle : il ne reçoit jamais vos mots de passe ni vos données en clair.
 
----
+#### Option A — Avec Docker Compose (recommandé)
 
-### Aide contextuelle
+1. Ouvrez `sync-server/compose.yaml` et configurez `NOTEOR_CORS_ORIGINS` avec l'URL Cloudflare Pages de votre PWA :
+   ```yaml
+   environment:
+     NOTEOR_DATA_DIR: /data
+     NOTEOR_CORS_ORIGINS: "https://noteor-pwa.pages.dev,http://localhost:3000"
+   ```
+2. Démarrez le conteneur :
+   ```bash
+   cd sync-server
+   docker compose up -d --build noteor-sync
+   ```
+3. Vérifiez l'état du serveur :
+   ```bash
+   curl -fsS http://127.0.0.1:8787/healthz
+   # {"status":"ok","version":"1.1.0"}
+   ```
 
-Chaque écran dispose d'un bouton **?** dans la barre de menu qui affiche une aide contextuelle :
+#### Option B — En Python natif sur votre machine (sans Docker)
 
-| Écran | Contenu de l'aide |
-|---|---|
-| **Liste des notes** | Navigation, recherche, indicateurs audio/image |
-| **Éditeur** | Markdown, tags, médias, auto-save, transcription IA |
-| **Filtres** | Catégories, dossiers, tags, corbeille |
-| **Paramètres** | OpenRouter, import/export |
+- **Avec FastAPI / Uvicorn (environnement dédié `sync-server/.venv`) :**
+  ```bash
+  cd sync-server
+  python3 -m venv .venv
+  source .venv/bin/activate
+  pip install -e .
 
----
+  mkdir -p ~/noteor-sync-data
+  export NOTEOR_DATA_DIR=~/noteor-sync-data
+  export NOTEOR_CORS_ORIGINS="https://noteor-pwa.pages.dev,http://localhost:3000"
+  uvicorn app.main:app --host 127.0.0.1 --port 8787
+  ```
+- **Ou sans aucune dépendance externe (mode stdlib HTTP/1.1 intégré) :**
+  ```bash
+  cd sync-server
+  NOTEOR_DATA_DIR=~/noteor-sync-data PORT=8787 python3 -m app.stdlib_server
+  ```
 
-### Déploiement sur Netlify
+#### Exposer le serveur en HTTPS (indispensable pour le mobile)
 
-1. Forker / cloner le dépôt
-2. Connecter le repo dans [Netlify](https://netlify.com)
-3. Netlify détecte automatiquement `netlify.toml` :
-   - **Build command** : `node scripts/generate-icons.mjs && tsc && vite build`
-   - **Publish directory** : `web/dist`
-4. Déployer — l'app est accessible en HTTPS avec PWA activée
+Les navigateurs mobiles bloquent les requêtes vers `http://` depuis une PWA en HTTPS. Exposez `127.0.0.1:8787` via l'une de ces 3 méthodes :
+- **Cloudflare Tunnel** *(recommandé, aucun port à ouvrir sur votre box)* :
+  ```bash
+  cloudflared tunnel login
+  cloudflared tunnel create noteor-sync
+  cloudflared tunnel route dns noteor-sync sync.votre-domaine.tld
+  cloudflared tunnel --url http://127.0.0.1:8787 run noteor-sync
+  ```
+- **Tailscale Serve** *(VPN privé)* :
+  ```bash
+  tailscale serve --bg 8787
+  ```
+- **Caddy** *(domaine public avec ports 80/443 ouverts)* : adaptez `sync-server/Caddyfile.example` puis exécutez `docker compose up -d --build`.
 
----
-
-### Développement local (web)
+#### Sauvegarde à chaud du serveur
 
 ```bash
-cd web
+cd sync-server
+./scripts/backup.sh ~/noteor-sync-backups
+```
+
+---
+
+### 2️⃣ Déploiement du Mobile / PWA (`web/`) sur Cloudflare Pages
+
+Les fichiers Cloudflare Pages sont préconfigurés dans le dépôt :
+- `web/wrangler.toml` (`pages_build_output_dir = "dist"`)
+- `web/public/_headers` (CSP autorisant `'wasm-unsafe-eval'` pour Argon2id/libsodium, permissions micro/caméra et règles de cache PWA `/sw.js` + `/assets/*`)
+- `web/vite.config.ts` (exclusion Workbox `NetworkOnly` sur `/api/v1/*`)
+
+#### Méthode A — Via GitHub & Dashboard Cloudflare
+
+1. Dans **Cloudflare Dashboard → Workers & Pages → Create → Pages → Connect to Git**, sélectionnez ce dépôt.
+2. Paramètres de build :
+   - **Root directory** : `/` *(laisser à la racine pour les workspaces npm)*
+   - **Build command** : `npm install && npm run build`
+   - **Build output directory** : `web/dist`
+   - **Variable d'environnement** : `NODE_VERSION = 22`
+3. Déployez et notez l'URL attribuée (`https://<votre-projet>.pages.dev`).
+4. Ajoutez cette URL dans `NOTEOR_CORS_ORIGINS` de `sync-server/` puis redémarrez `sync-server/`.
+
+#### Méthode B — Via Wrangler CLI (depuis votre poste)
+
+```bash
+# 1. Compilation production (à la racine)
 npm install
-npm run dev        # Serveur de développement → http://localhost:5173
-npm run build      # Build production (génère aussi les icônes PNG)
-npm run preview    # Prévisualiser le build
+npm run build
+
+# 2. Connexion & déploiement sur Cloudflare Pages
+npx wrangler login
+npx wrangler pages project create noteor-pwa --production-branch=main
+cd web
+npx wrangler pages deploy dist --project-name=noteor-pwa
 ```
+
+#### Installation sur mobile
+
+1. Ouvrez `https://<votre-projet>.pages.dev` sur **Safari (iOS)** ou **Chrome (Android)**.
+2. Ajoutez à l'écran d'accueil (**Installer l'application** / **Sur l'écran d'accueil**).
+3. Touchez l'icône bouclier (🛡) dans l'en-tête pour créer votre coffre chiffré avec l'URL HTTPS de votre serveur Sync, puis conservez précieusement votre **clé de secours 256 bits**.
 
 ---
 
-### Stack technique (web)
+### 3️⃣ Déploiement et intégration de Noteor Desktop sur votre machine
 
-| Composant | Technologie |
-|---|---|
-| Framework | React 18 + TypeScript |
-| Build | Vite 6 |
-| Style | Tailwind CSS v3 + @tailwindcss/typography |
-| Stockage | Dexie.js (IndexedDB) |
-| Markdown | react-markdown + remark-gfm |
-| Icônes | lucide-react |
-| PWA | vite-plugin-pwa (Workbox) |
-| Icônes app | SVG + sharp (PNG auto-généré) |
-| IA | OpenRouter API (modèles `:free`) |
+Le dossier `sync/desktop/` fournit les modules Python testés (`crypto.py`, `sqlite_sync_adapter.py`, `engine.py`) prêts à être branchés sur votre application PyQt6 locale (qui n'est pas incluse dans cet espace de travail).
 
----
-
-### Structure du projet web
-
-```
-web/
-├── public/
-│   ├── icon.svg              # Icône source SVG
-│   ├── pwa-192.png           # Icône PWA 192×192 (auto-générée)
-│   ├── pwa-512.png           # Icône PWA 512×512 (auto-générée)
-│   └── apple-touch-icon.png  # Icône iOS 180×180 (auto-générée)
-├── scripts/
-│   └── generate-icons.mjs    # Génération des PNG depuis icon.svg (sharp)
-├── src/
-│   ├── db/
-│   │   └── index.ts          # Couche Dexie/IndexedDB + export/import JSON
-│   ├── types/
-│   │   └── index.ts          # Interfaces TypeScript
-│   ├── services/
-│   │   └── openrouter.ts     # API OpenRouter (modèles + transcription)
-│   └── components/
-│       ├── NoteList.tsx      # Liste des notes avec recherche et filtres
-│       ├── NoteEditor.tsx    # Éditeur Markdown + tags + médias + IA
-│       ├── Sidebar.tsx       # Panneau filtres & organisation
-│       ├── Settings.tsx      # Paramètres OpenRouter + import/export
-│       ├── AudioRecorder.tsx # Enregistrement et lecture audio
-│       ├── TagChip.tsx       # Composant tag cliquable
-│       └── HelpModal.tsx     # Modal d'aide contextuelle (réutilisable)
-├── netlify.toml              # Config Netlify (build + redirects SPA + headers)
-├── vite.config.ts
-├── tailwind.config.js
-└── package.json
-```
-
----
-
-## 🖥️ Version desktop — Python / Linux
-
-### Fonctionnalités
-
-- Éditeur **Markdown** avec aperçu HTML en temps réel
-- **Enregistrement audio** (arecord/ALSA + sounddevice)
-- **Capture d'écran** (portail XDG — Wayland & X11)
-- **Enregistrement webcam** (ffmpeg + V4L2)
-- **Import** images et vidéos
-- **Export PDF** (Qt PrintSupport)
-- **Tags**, **catégories** et **dossiers** hiérarchiques
-- **Corbeille** avec restauration
-- Aide intégrée (`F1`)
-
-### Interface desktop
-
-```
-┌─────────────────┬─────────────────┬────────────────────────────────┐
-│  📂 Dossiers    │  📋 Liste notes  │  📝 Éditeur                    │
-│  🏷 Catégories  │                  │                                │
-│  Tags           │  • Ma note 1 🎤  │  Titre de la note              │
-│  Filtres        │  • Ma note 2 🖼  │  ─────────────────────────     │
-│  🗑 Corbeille   │  • Ma note 3 🎬  │  Contenu en **Markdown**...    │
-│                 │                  │                                │
-│                 │                  │  [Pièces jointes]              │
-└─────────────────┴─────────────────┴────────────────────────────────┘
-```
-
-### Installation (Linux)
+#### Étape 1 — Prérequis système (Debian / Ubuntu)
 
 ```bash
-# Prérequis
-sudo apt install python3 python3-pip python3-venv \
-                 alsa-utils python3-dbus python3-gi ffmpeg
-
-# Installation
-git clone https://github.com/nouhailler/Noteor.git
-cd Noteor
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Lancement
-python3 main.py
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip libsodium23 \
+                    alsa-utils python3-dbus python3-gi ffmpeg
 ```
 
-### Raccourcis clavier
+*(Aucune compilation C ou installation de `PyNaCl` n'est requise : `sync/desktop/crypto.py` utilise directement `libsodium.so.23` via `ctypes`.)*
 
-| Raccourci | Action |
-|---|---|
-| `Ctrl+N` | Nouvelle note |
-| `Ctrl+S` | Sauvegarder |
-| `Ctrl+E` | Exporter en PDF |
-| `F1` | Aide complète |
-| `F5` | Actualiser |
-| `Ctrl+Q` | Quitter |
+#### Étape 2 — Sauvegarde de votre base Desktop existante
 
-### Données locales
-
-```
-~/.local/share/Noteor/
-├── notes.db           # Base SQLite
-└── media/
-    ├── audio/         # Enregistrements WAV
-    ├── images/        # Images et captures
-    ├── thumbnails/    # Miniatures
-    └── video/         # Vidéos
+```bash
+cp -a ~/.local/share/Noteor/notes.db ~/.local/share/Noteor/notes.db.bak.$(date +%Y%m%d)
 ```
 
-### Stack technique (desktop)
+#### Étape 3 — Intégration dans votre dépôt PyQt6 local
 
-| Composant | Technologie |
-|---|---|
-| Interface | PyQt6 |
-| Base de données | SQLite (WAL mode) |
-| Markdown | `markdown` |
-| Images | Pillow + Qt |
-| Audio | `arecord` / `aplay` + `sounddevice` |
-| Capture d'écran | Portail XDG (D-Bus / gi) |
-| Vidéo | `ffmpeg` + V4L2 |
-| Export PDF | Qt PrintSupport |
+1. Copiez le répertoire `sync/` dans votre dépôt Noteor Desktop.
+2. Remplacez les appels directs SQLite de `database.py` par `DesktopSyncDatabase` (`save_note`, `trash_note`, `restore_note`, `permanently_delete_note`, `save_category`, `save_folder`, `add_tag_to_note`, `remove_tag_from_note`, `add_attachment`, `enqueue_existing_snapshot`).
+   - À l'ouverture, `DesktopSyncDatabase` migre automatiquement votre base SQLite v1 en v2 WAL (attribution de `sync_id` UUID v4, dates UTC RFC 3339, Wikilinks `[[Titre|@uuid]]`, déduplication Unicode des tags).
+3. Connectez `DesktopSyncEngine` + `SyncHttpClient` + `VaultKeyring` dans votre fenêtre principale PyQt6 (`ui/main_window.py`) pour déclencher `engine.sync_now()`, gérer le QR code de jumelage avec le mobile et résoudre d'éventuels conflits via `engine.resolve_conflict(...)`.
+4. Si vous distribuez un paquet `.deb`, ajoutez `libsodium23` aux dépendances dans `packaging/DEBIAN/control` et incluez `sync/` dans le package avant `./packaging/build_deb.sh`.
+
+---
+
+## 🛠️ Tests automatisés et développement local
+
+### Développement web local
+
+```bash
+npm install
+npm run dev        # Serveur Vite → http://localhost:3000
+npm run lint       # Vérification TypeScript strict (tsc --noEmit)
+npm run build      # Génération icônes PWA + bundle web/dist
+```
+
+### Suite de tests (Crypto croisée TS ↔ Python, Adaptateurs, Serveur & E2E)
+
+```bash
+# Tests TypeScript + Vitest (incluant E2E live PWA <-> Serveur Sync <-> Desktop Python)
+npx vitest run
+
+# Tests Python (vecteurs crypto, adaptateur Desktop SQLite WAL, serveur HTTP & E2E)
+python3 -m unittest discover -s tests/python -v
+```
+
+---
+
+## ✨ Fonctionnalités Noteor PWA & Sync
+
+- **Éditeur Markdown complet** : barre de formatage, aperçu temps réel, auto-sauvegarde, liens `[[Note|@uuid]]`, vue graphe interactive et vue calendrier.
+- **Médias chiffrés (`NTRM1`)** : enregistrement vocal, capture photo/import d'images, lecteur intégré et chiffrement par flux `crypto_secretstream_xchacha20poly1305` par blocs.
+- **Organisation & IA** : catégories colorées, dossiers, tags normalisés, sélection multiple, corbeille, export/import JSON, et transcription audio OpenRouter (`:free`).
+- **Synchronisation E2EE multi-appareils** :
+  - Dérivation de clé maître **Argon2id** exécutée dans un Web Worker dédié ;
+  - Coffre déverrouillé en RAM uniquement avec verrouillage automatique par inactivité et mise à zéro mémoire ;
+  - Jumelage rapide entre appareils par **QR code / JSON** (HMAC + enveloppe éphémère) ;
+  - **Détection de conflits par DAG de révisions** sans écrasement silencieux (`Garder locale`, `Prendre distante`, `Garder les deux`, `Fusionner`) ;
+  - **Révocation d'appareil** avec rotation vers l'époque cryptographique suivante (`X25519 crypto_box_seal`).
 
 ---
 
