@@ -4,6 +4,27 @@ Toutes les évolutions notables de **Noteor** sont documentées dans ce fichier.
 
 ---
 
+## [Non publié — Préproduction] — 2026-11-20
+
+### Ajouté
+- **Pipeline CI GitHub Actions (`.github/workflows/ci.yml`)** :
+  - 4 jobs (`python-and-crypto-interop` matrice `3.11`/`3.12`, `web-pwa-and-e2e`, `fastapi-uvicorn-server`, `security-and-audit`) avec permissions minimales `contents: read`, `concurrency`, `timeout-minutes` explicites, zéro `continue-on-error` et actions épinglées par SHA immuable.
+- **Validation FastAPI / Uvicorn & tests adversariaux de sécurité** :
+  - `sync-server/tests/test_fastapi_uvicorn.py` + configuration `[tool.pytest.ini_options]` dans `sync-server/pyproject.toml` (tests `TestClient`, persistance SQLite WAL + blobs après redémarrage d'un sous-processus `uvicorn`, concurrence, CORS, `413` et `scripts/backup.sh`).
+  - `tests/python/test_security_adversarial.py` (5 suites négatives Python) et `web/src/sync/__tests__/security_adversarial.test.ts` (4 suites négatives TypeScript) portant la couverture locale vérifiée à **25 tests Python (`unittest`)** et **16 tests TypeScript (`vitest`)**.
+- **Documentation d'exploitation & rapport préproduction** :
+  - `docs/sync/NOTEOR_SYNC_OPERATIONS.md` (exploitation Docker/Uvicorn `--workers 1`, `NOTEOR_ENV=production`, Tailscale Serve/WireGuard/Tunnel/Caddy, sauvegarde à chaud WAL et procédure de restauration testée).
+  - `docs/sync/NOTEOR_SYNC_PREPRODUCTION_BASELINE.md` et `docs/sync/NOTEOR_SYNC_PREPRODUCTION_REPORT.md` (verdict **`NON VALIDÉ`** en attente d'exécution réelle de FastAPI/Uvicorn et de GitHub Actions CI).
+
+### Sécurité & Corrigé
+- **Confinement pièces jointes Desktop (`sync/desktop/engine.py`)** : ajout de `_safe_attachment_dest(media_id, file_name)` (validation UUID, assainissement du nom et vérification `.resolve().is_relative_to(media_dir)`) éliminant le risque de Path Traversal lors du téléchargement de médias.
+- **Verrouillage effectif du jumelage (`sync-server/app/services/sync_service.py`)** : commit explicite de `failed_attempts` et du statut `locked` au 5e échec dans `confirm_pairing` avant la levée de `ApiError(403, "DEVICE_MISMATCH")` (auparavant annulé par le `ROLLBACK` transactionnel).
+- **Bornes crypto & hygiène mémoire (`sync/desktop/crypto.py`, `web/src/sync/crypto.ts`)** : plafonds Argon2id (`ARGON2ID_MAX_MEM_KIB = 524288`, `ARGON2ID_MAX_ITERATIONS = 20`), rejet des booléens, vérification stricte de longueur `32` octets des clés X25519 et mise à zéro `memset` des tampons C sensibles.
+- **Anti-rejeu & isolation multi-coffre (`sync/desktop/engine.py`, `web/src/sync/engine.ts`)** : contrôle systématique de concordance `vault_id` et stricte monotonie `server_seq > last_seen_seq` lors du pull.
+- **Durcissement HTTP & parité serveur (`sync-server/app/main.py`, `app/stdlib_server.py`, `sync_service.py`)** : CORS par défaut restreint à `localhost:3000`/`127.0.0.1:3000` avec refus de `*` si `NOTEOR_ENV=production` ; en-têtes `X-Content-Type-Options: nosniff` et `Cache-Control: no-store` ; plafonds pré-lecture `413` (`16 MiB` JSON / `4 MiB` PUT média) avec drainage borné anti-RST sur `stdlib_server` ; lecture/hachage/envoi streamés des médias ; rejet `400` des horodatages sans fuseau horaire, plafond `16 KiB` sur `vsk_recovery_envelope` et validation stricte de pagination.
+
+---
+
 ## [1.1.0] — 2026-11-19
 
 ### Ajouté

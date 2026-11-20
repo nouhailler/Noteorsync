@@ -25,7 +25,7 @@
 | **Serveur Sync (`sync-server/`)** | Relais aveugle zéro-connaissance (opérations + médias `NTRM1`) | FastAPI (ou stdlib Python), SQLite WAL, stockage blobs | `sync-server/` |
 | **Assistant Serveur (`.deb`)** | Interface graphique Noteor pour configurer et piloter Docker Compose | Python 3.11+, PyQt6 (+ repli Web UI stdlib), Bash, `dpkg-deb` | `sync-server-manager/` |
 | **Modules Desktop** | Adaptateur SQLite WAL + moteur E2EE prêts à intégrer dans PyQt6 | Python 3.11+, `sqlite3`, `libsodium.so.23` (`ctypes`) | `sync/desktop/` |
-| **Spécifications & Tests** | Architecture E2EE, guide de déploiement, vecteurs crypto & E2E | Markdown, Vitest (TS), `unittest` (Python) | `docs/`, `tests/` |
+| **Spécifications, CI & Tests** | Architecture, exploitation, CI GitHub Actions, vecteurs crypto & suites E2E/sécurité | Markdown, GitHub Actions, Vitest (TS), `unittest` & `pytest` (Python) | `docs/`, `.github/`, `tests/` |
 
 ---
 
@@ -75,15 +75,18 @@ Le serveur Sync fonctionne entièrement en relais aveugle : il ne reçoit jamais
   pip install -e .
 
   mkdir -p ~/noteor-sync-data
+  export NOTEOR_ENV=production
   export NOTEOR_DATA_DIR=~/noteor-sync-data
-  export NOTEOR_CORS_ORIGINS="https://noteor-pwa.pages.dev,http://localhost:3000"
-  uvicorn app.main:app --host 127.0.0.1 --port 8787
+  export NOTEOR_CORS_ORIGINS="https://noteor-pwa.pages.dev"
+  uvicorn app.main:app --host 127.0.0.1 --port 8787 --workers 1
   ```
 - **Ou sans aucune dépendance externe (mode stdlib HTTP/1.1 intégré) :**
   ```bash
   cd sync-server
   NOTEOR_DATA_DIR=~/noteor-sync-data PORT=8787 python3 -m app.stdlib_server
   ```
+
+> 🛡️ **Sécurité serveur par défaut** : si `NOTEOR_CORS_ORIGINS` est omis, seules les origines locales (`localhost:3000` / `127.0.0.1:3000`) sont autorisées, et `NOTEOR_ENV=production` refuse `*` au démarrage. Le serveur borne les requêtes à `16 MiB` (JSON) et `4 MiB` par chunk média (`HTTP 413`). Consultez [`docs/sync/NOTEOR_SYNC_OPERATIONS.md`](docs/sync/NOTEOR_SYNC_OPERATIONS.md) pour la configuration complète et la restauration testée.
 
 #### Exposer le serveur en HTTPS (indispensable pour le mobile)
 
@@ -191,15 +194,23 @@ npm run lint       # Vérification TypeScript strict (tsc --noEmit)
 npm run build      # Génération icônes PWA + bundle web/dist
 ```
 
-### Suite de tests (Crypto croisée TS ↔ Python, Adaptateurs, Serveur & E2E)
+### Suite de tests (Crypto croisée TS ↔ Python, Sécurité adversariale, Serveur & E2E)
 
 ```bash
-# Tests TypeScript + Vitest (incluant E2E live PWA <-> Serveur Sync <-> Desktop Python)
+# Tests TypeScript + Vitest (16 tests : crypto Py↔TS, DB/engine, tests adversariaux & E2E live)
 npx vitest run
 
-# Tests Python (vecteurs crypto, adaptateur Desktop SQLite WAL, serveur HTTP, E2E & gestionnaire .deb)
+# Tests Python (25 tests : vecteurs crypto, TS→Py, adaptateur Desktop WAL, sécurité adversariale, stdlib E2E & sync-manager)
 python3 -m unittest discover -s tests/python -v
+
+# Tests ASGI FastAPI + Uvicorn (dans un environnement avec sync-server[dev] installé)
+pip install -e "./sync-server[dev]" && pytest -v sync-server/tests
+
+# Audit des dépendances JS runtime (0 vulnérabilité sur 231 paquets)
+bun audit --production --audit-level=low
 ```
+
+> Les workflows automatisés (matrice Python `3.11`/`3.12`, Vitest/build PWA, `pytest` FastAPI/Uvicorn, `bun audit` & `pip-audit`) sont définis dans [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ---
 
@@ -225,9 +236,12 @@ python3 -m unittest discover -s tests/python -v
 - [`docs/sync/NOTEOR_SYNC_CRYPTO.md`](docs/sync/NOTEOR_SYNC_CRYPTO.md) — Spécification cryptographique E2EE (`Argon2id`, `XChaCha20-Poly1305`, `NTRM1`, jumelage)
 - [`docs/sync/NOTEOR_SYNC_DATA_MODEL.md`](docs/sync/NOTEOR_SYNC_DATA_MODEL.md) — Modèle de données commun Desktop / PWA et résolution DAG
 - [`docs/sync/NOTEOR_SYNC_CONFORMANCE_REPORT.md`](docs/sync/NOTEOR_SYNC_CONFORMANCE_REPORT.md) — Rapport de conformité et d'audit croisé v1.1
+- [`docs/sync/NOTEOR_SYNC_OPERATIONS.md`](docs/sync/NOTEOR_SYNC_OPERATIONS.md) — Manuel d'exploitation serveur (`Docker`/`Uvicorn`, `Tailscale`/`WireGuard`/`Tunnel`, sauvegarde WAL & restauration)
+- [`docs/sync/NOTEOR_SYNC_PREPRODUCTION_BASELINE.md`](docs/sync/NOTEOR_SYNC_PREPRODUCTION_BASELINE.md) — Baseline technique gelée avant durcissement préproduction
+- [`docs/sync/NOTEOR_SYNC_PREPRODUCTION_REPORT.md`](docs/sync/NOTEOR_SYNC_PREPRODUCTION_REPORT.md) — Rapport d'audit préproduction (`NON VALIDÉ` en attente d'exécution FastAPI/Uvicorn & CI GitHub Actions)
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — Guide pas à pas (Serveur Sync, Cloudflare Pages, Desktop)
 - [`sync-server-manager/README.md`](sync-server-manager/README.md) — Construction et usage du paquet `.deb`
-- [`CHANGELOG.md`](CHANGELOG.md) — Historique des versions (`v1.0.0`, `v1.1.0`)
+- [`CHANGELOG.md`](CHANGELOG.md) — Historique des versions (`v1.0.0`, `v1.1.0`, travaux préproduction)
 - [`CONTEXT.md`](CONTEXT.md) — Architecture complète du dépôt et état technique
 
 ---
