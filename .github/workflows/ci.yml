@@ -1,0 +1,231 @@
+name: Noteor Sync CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-and-crypto-interop:
+    name: Python Matrix (${{ matrix.python-version }}) & Interop
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install system libsodium23
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsodium23
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fbc71c33 # v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Node.js 22 (cross-language crypto test runner)
+        uses: actions/setup-node@60edb5e545a29e3b5dce4821dcc63018ebc2594e # v4.2.0
+        with:
+          node-version: "22"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install JS workspace dependencies (for TS<->Py crypto vectors)
+        run: bun install --frozen-lockfile
+
+      - name: Install Python lint tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ruff>=0.8,<1"
+
+      - name: Compile Python bytecode
+        run: |
+          python -m py_compile \
+            sync/desktop/crypto.py \
+            sync/desktop/engine.py \
+            sync/desktop/sqlite_sync_adapter.py \
+            sync-server/app/main.py \
+            sync-server/app/stdlib_server.py \
+            sync-server/app/services/sync_service.py \
+            sync-server/app/storage/database.py \
+            sync-server/tests/test_fastapi_uvicorn.py \
+            sync-server-manager/main.py \
+            sync-server-manager/manager_core.py \
+            sync-server-manager/gui_web.py \
+            sync-server-manager/gui_pyqt.py \
+            tests/python/test_crypto_vectors.py \
+            tests/python/test_desktop_adapter_and_engine.py \
+            tests/python/test_security_adversarial.py \
+            tests/python/test_server_and_e2e.py \
+            tests/python/test_sync_manager.py
+
+      - name: Lint Python fatal errors and undefined names (ruff)
+        run: ruff check --select E9,F63,F7,F82 sync sync-server tests sync-server-manager
+
+      - name: Run Python unit, crypto interop, adversarial & E2E tests
+        run: python -m unittest discover -s tests/python -v
+
+  web-pwa-and-e2e:
+    name: Web PWA TypeScript, Vitest & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install system libsodium23 (for Python Desktop E2E participant)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsodium23
+
+      - name: Set up Python 3.11 (for E2E stdlib_server & Desktop checks)
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fbc71c33 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@60edb5e545a29e3b5dce4821dcc63018ebc2594e # v4.2.0
+        with:
+          node-version: "22"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: TypeScript typecheck
+        run: bun run lint
+
+      - name: Run Vitest suite (Crypto vectors, DB/Engine, Adversarial, Live E2E)
+        run: bunx vitest run
+
+      - name: Build production PWA bundle
+        run: bun run build
+
+      - name: Verify required PWA build artifacts
+        run: |
+          test -f web/dist/index.html
+          test -f web/dist/_headers
+          test -f web/dist/sw.js
+          test -f web/dist/manifest.webmanifest
+
+  fastapi-uvicorn-server:
+    name: FastAPI & Uvicorn Server Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install system libsodium23
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsodium23
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fbc71c33 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Install sync-server and dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "./sync-server[dev]"
+
+      - name: Verify FastAPI ASGI app import
+        run: PYTHONPATH=sync-server python -c "import app.main; assert app.main.app is not None"
+
+      - name: Run pytest FastAPI TestClient & live Uvicorn persistence suite
+        run: pytest -v sync-server/tests
+
+  security-and-audit:
+    name: Dependency Audit & Security Invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fbc71c33 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@60edb5e545a29e3b5dce4821dcc63018ebc2594e # v4.2.0
+        with:
+          node-version: "22"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install JS workspace dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Audit JS runtime dependencies (zero high/critical/moderate allowed)
+        run: bun audit --production --audit-level=low
+
+      - name: Audit full JS dependency tree (fail on critical advisories)
+        run: bun audit --audit-level=critical
+
+      - name: Audit Python sync-server dependencies (pip-audit)
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit ./sync-server
+          pip-audit
+
+      - name: Verify security configuration invariants and secret hygiene
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          compose = Path("sync-server/compose.yaml").read_text(encoding="utf-8")
+          assert "127.0.0.1:8787:8787" in compose, "compose.yaml must bind noteor-sync to loopback"
+
+          headers = Path("web/public/_headers").read_text(encoding="utf-8")
+          assert "frame-ancestors 'none'" in headers, "_headers missing frame-ancestors 'none'"
+          assert "object-src 'none'" in headers, "_headers missing object-src 'none'"
+          assert "'wasm-unsafe-eval'" in headers, "_headers missing wasm-unsafe-eval for Argon2id WASM"
+
+          vite_cfg = Path("web/vite.config.ts").read_text(encoding="utf-8")
+          assert "NetworkOnly" in vite_cfg and (r"/\/api\/v1\/" in vite_cfg or "/api/v1/" in vite_cfg), (
+              "Workbox must exclude /api/v1/ with NetworkOnly"
+          )
+
+          secret_re = re.compile(r"(-----BEGIN [A-Z ]*PRIVATE KEY-----|ntr_dev_[A-Za-z0-9_-]{20,})")
+          for base in (Path("sync"), Path("sync-server/app"), Path("sync-server-manager"), Path("web/src")):
+              for p in base.rglob("*"):
+                  if p.is_file() and "__tests__" not in p.parts and p.suffix in {".py", ".ts", ".tsx", ".sh"}:
+                      txt = p.read_text(encoding="utf-8", errors="ignore")
+                      assert not secret_re.search(txt), f"Unexpected secret literal in {p}"
+          print("All static security invariants passed.")
+          PY

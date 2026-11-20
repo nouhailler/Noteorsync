@@ -386,7 +386,13 @@ class TestServerAndDesktopE2E(unittest.TestCase):
         host, port = self.httpd.server_address
         with socket.create_connection((host, port), timeout=5) as sock:
             sock.sendall(b"POST /api/v1/vaults HTTP/1.1\r\nHost: localhost\r\nContent-Length: -5\r\nConnection: close\r\n\r\n")
-            raw_resp = sock.recv(4096).decode("utf-8", errors="replace")
+            chunks: list[bytes] = []
+            while True:
+                part = sock.recv(4096)
+                if not part:
+                    break
+                chunks.append(part)
+            raw_resp = b"".join(chunks).decode("utf-8", errors="replace")
         self.assertIn("400", raw_resp.splitlines()[0])
         self.assertIn("INVALID_PAYLOAD", raw_resp)
 

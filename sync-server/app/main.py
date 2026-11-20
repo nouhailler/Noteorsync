@@ -2,16 +2,38 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
-from .services.sync_service import ApiError, SyncService
+from .services.sync_service import MAX_HTTP_CHUNK_SIZE, ApiError, SyncService
 from .storage.database import SyncStorage
+
+logger = logging.getLogger("noteor.sync")
+MAX_JSON_BODY_BYTES = 16 * 1024 * 1024  # 16 MiB
+DEFAULT_DEV_CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
+def _resolve_cors_origins(cors_origins: list[str] | None) -> list[str]:
+    if cors_origins is not None:
+        origins = [o.strip() for o in cors_origins if o.strip()]
+    else:
+        raw = os.environ.get("NOTEOR_CORS_ORIGINS", "")
+        origins = [o.strip() for o in raw.split(",") if o.strip()]
+    if not origins:
+        logger.warning("NOTEOR_CORS_ORIGINS unset; restricting CORS to localhost dev origins")
+        return list(DEFAULT_DEV_CORS_ORIGINS)
+    if "*" in origins:
+        if os.environ.get("NOTEOR_ENV", "").lower() == "production":
+            raise RuntimeError("Wildcard CORS '*' is forbidden when NOTEOR_ENV=production")
+        logger.warning("Wildcard CORS '*' enabled; configure explicit origins for production")
+    return origins
 
 
 def create_app(
@@ -27,9 +49,7 @@ def create_app(
     service = SyncService(storage)
 
     app = FastAPI(title="Noteor Sync Server", version="1.1.0")
-    origins = cors_origins or [
-        o.strip() for o in os.environ.get("NOTEOR_CORS_ORIGINS", "*").split(",") if o.strip()
-    ]
+    origins = _resolve_cors_origins(cors_origins)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
@@ -38,9 +58,43 @@ def create_app(
         allow_headers=["Authorization", "Content-Type", "Content-Range"],
     )
 
+    @app.middleware("http")
+    async def security_and_size_middleware(request: Request, call_next: Any) -> Any:
+        raw_cl = request.headers.get("content-length")
+        if raw_cl is not None:
+            try:
+                cl = int(raw_cl)
+                if cl < 0:
+                    raise ValueError("Negative Content-Length")
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": {"code": "INVALID_PAYLOAD", "message": "Invalid Content-Length header", "details": {}}},
+                )
+            is_media_put = request.method == "PUT" and "/media/uploads/" in request.url.path
+            max_allowed = MAX_HTTP_CHUNK_SIZE if is_media_put else MAX_JSON_BODY_BYTES
+            if cl > max_allowed:
+                code = "CHUNK_TOO_LARGE" if is_media_put else "PAYLOAD_TOO_LARGE"
+                return JSONResponse(
+                    status_code=413,
+                    content={"error": {"code": code, "message": f"Request body exceeds {max_allowed} bytes", "details": {}}},
+                )
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        if request.url.path.startswith("/api/v1/") and "/media/" not in request.url.path:
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
+
     @app.exception_handler(ApiError)
     async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:
         return JSONResponse(status_code=exc.status, content=exc.to_dict())
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"code": "INVALID_PAYLOAD", "message": "Malformed request payload or parameters", "details": {"errors": exc.errors()}}},
+        )
 
     @app.exception_handler(ValueError)
     async def value_error_handler(_: Request, exc: ValueError) -> JSONResponse:
@@ -171,8 +225,18 @@ def create_app(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         service.authenticate(authorization, vault_id)
-        chunk = await request.body()
-        return service.upload_media_chunk(vault_id, media_id, content_range, chunk)
+        chunks: list[bytes] = []
+        total_bytes = 0
+        async for part in request.stream():
+            total_bytes += len(part)
+            if total_bytes > MAX_HTTP_CHUNK_SIZE:
+                raise ApiError(
+                    413,
+                    "CHUNK_TOO_LARGE",
+                    f"HTTP chunk exceeds limit {MAX_HTTP_CHUNK_SIZE}",
+                )
+            chunks.append(part)
+        return service.upload_media_chunk(vault_id, media_id, content_range, b"".join(chunks))
 
     @app.post("/api/v1/vaults/{vault_id}/media/uploads/{media_id}/complete")
     async def complete_media(

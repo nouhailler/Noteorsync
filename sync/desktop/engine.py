@@ -224,9 +224,22 @@ class DesktopSyncEngine:
         self.db = db
         self.client = client
         self.keyring = keyring
-        self.media_dir = Path(media_dir) if media_dir else None
+        self.media_dir = Path(media_dir).resolve() if media_dir else None
         if self.media_dir:
             self.media_dir.mkdir(parents=True, exist_ok=True)
+
+    def _safe_attachment_dest(self, media_id: str, file_name: str) -> Path:
+        if not self.media_dir:
+            raise ValueError("media_dir is not configured")
+        pyc.assert_uuid(media_id)
+        base_name = os.path.basename(str(file_name or "blob").replace("\\", "/")).strip()
+        if not base_name or base_name in (".", ".."):
+            base_name = "blob"
+        safe_name = "".join("_" if ch in '<>:"/|?*\x00' else ch for ch in base_name)[:120]
+        candidate = (self.media_dir / f"{media_id}_{safe_name}").resolve()
+        if not candidate.is_relative_to(self.media_dir):
+            raise ValueError("Unsafe media destination path")
+        return candidate
 
     def _ensure_epoch_root_key(self, epoch: int) -> bytes:
         if epoch in self.keyring.epoch_root_keys:
@@ -372,11 +385,20 @@ class DesktopSyncEngine:
 
     def _pull_and_apply_operations(self, res: SyncResult) -> None:
         cursor = self.db.get_state("last_server_seq", "0") or "0"
+        last_seen_seq = int(cursor)
         while True:
             page = self.client.pull_operations(self.keyring.vault_id, cursor, limit=200)
             ops = page.get("operations", [])
             if ops:
                 for env in ops:
+                    if env.get("vault_id") != self.keyring.vault_id:
+                        raise ValueError("Pulled operation vault_id mismatch")
+                    srv_seq_int = int(env["server_seq"])
+                    if srv_seq_int <= last_seen_seq:
+                        raise ValueError(
+                            f"Non-monotonic server_seq {srv_seq_int} after {last_seen_seq}"
+                        )
+                    last_seen_seq = srv_seq_int
                     if env["device_id"] == self.keyring.device_id:
                         res.pulled_count += 1
                         continue
@@ -859,7 +881,7 @@ class DesktopSyncEngine:
                 )
             else:
                 dest_path = (
-                    str(self.media_dir / f"{d['media_id']}_{d.get('file_name', 'blob')}")
+                    str(self._safe_attachment_dest(str(d["media_id"]), str(d.get("file_name", "blob"))))
                     if self.media_dir
                     else ""
                 )
@@ -925,7 +947,9 @@ class DesktopSyncEngine:
             if att["encrypted_sha256"] and pyc.sha256_hex(encrypted) != att["encrypted_sha256"]:
                 raise ValueError(f"Downloaded media SHA-256 mismatch for {att['media_id']}")
             plain = pyc.decrypt_media_stream(k_media, att["media_id"], epoch, encrypted)
-            out_path = Path(att["filepath"]) if att["filepath"] else (self.media_dir / att["media_id"])
+            pyc.assert_uuid(att["media_id"])
+            candidate = Path(att["filepath"]).resolve() if att["filepath"] else (self.media_dir / att["media_id"]).resolve()
+            out_path = candidate if candidate.is_relative_to(self.media_dir) else (self.media_dir / att["media_id"]).resolve()
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_bytes(plain)
             with self.db.transaction() as c:

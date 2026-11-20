@@ -13,6 +13,8 @@ export const ARGON2ID_MEM_KIB = 65536;
 export const ARGON2ID_MEM_BYTES = ARGON2ID_MEM_KIB * 1024; // 67108864
 export const ARGON2ID_ITERATIONS = 3;
 export const ARGON2ID_PARALLELISM = 1;
+export const ARGON2ID_MAX_MEM_KIB = 524288; // 512 MiB cap against KDF OOM DoS
+export const ARGON2ID_MAX_ITERATIONS = 20;
 
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const UUID_GENERIC_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -146,8 +148,15 @@ export async function deriveArgon2idKek(
   if (parallelism !== 1) {
     throw new Error(`Unsupported Argon2id parallelism=${parallelism}; V1 requires p=1`);
   }
-  if (memoryKib < 8192 || iterations < 1) {
-    throw new Error('Unsafe Argon2id parameters');
+  if (
+    !Number.isInteger(memoryKib) ||
+    !Number.isInteger(iterations) ||
+    memoryKib < 8192 ||
+    memoryKib > ARGON2ID_MAX_MEM_KIB ||
+    iterations < 1 ||
+    iterations > ARGON2ID_MAX_ITERATIONS
+  ) {
+    throw new Error('Unsafe or out-of-bounds Argon2id parameters');
   }
   const passwordBytes = utf8ToBytes(passwordUtf8);
   return sodium.crypto_pwhash(
@@ -613,6 +622,12 @@ export async function sealEpochKeyForDevice(
   await ensureCryptoReady();
   assertUuid(params.vault_id);
   assertUuid(params.target_device_id);
+  if (!Number.isInteger(params.key_epoch) || params.key_epoch < 1) {
+    throw new Error('key_epoch must be >= 1');
+  }
+  if (devicePublicKey.length !== 32) {
+    throw new Error(`Device X25519 public key must be 32 bytes, got ${devicePublicKey.length}`);
+  }
   if (params.epoch_root_key.length !== 32) throw new Error('EpochRootKey must be 32 bytes');
   const payloadBytes = canonicalJsonBytes({
     domain: 'NOTEOR/SYNC/V1/DEVICE-WRAP',
@@ -632,6 +647,12 @@ export async function unsealEpochKeyForDevice(
   expected: { vault_id: string; key_epoch: number; target_device_id: string },
 ): Promise<Uint8Array> {
   await ensureCryptoReady();
+  if (devicePublicKey.length !== 32) {
+    throw new Error(`Device X25519 public key must be 32 bytes, got ${devicePublicKey.length}`);
+  }
+  if (devicePrivateKey.length !== 32) {
+    throw new Error(`Device X25519 private key must be 32 bytes, got ${devicePrivateKey.length}`);
+  }
   const sealed = fromBase64Url(sealedB64u);
   const plain = sodium.crypto_box_seal_open(sealed, devicePublicKey, devicePrivateKey);
   const obj = JSON.parse(bytesToUtf8(plain)) as {

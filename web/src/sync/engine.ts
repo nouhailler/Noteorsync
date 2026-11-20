@@ -560,10 +560,22 @@ export class PwaSyncEngine {
 
   private async pullAndApplyOperations(progress: SyncProgress, emit: () => void): Promise<void> {
     let cursor = (await db.sync_state.get('last_server_seq'))?.value ?? '0';
+    let lastSeenSeq = BigInt(cursor);
     while (true) {
       const page = await this.client.pullOperations(this.keyring.vaultId, cursor, 200);
       if (page.operations.length > 0) {
         for (const env of page.operations) {
+          if (env.vault_id !== this.keyring.vaultId) {
+            throw new Error('Pulled operation vault_id mismatch');
+          }
+          if (!env.server_seq || !/^[1-9][0-9]*$/.test(env.server_seq)) {
+            throw new Error(`Invalid server_seq in pulled operation: ${env.server_seq}`);
+          }
+          const srvSeq = BigInt(env.server_seq);
+          if (srvSeq <= lastSeenSeq) {
+            throw new Error(`Non-monotonic server_seq ${env.server_seq} after ${lastSeenSeq.toString()}`);
+          }
+          lastSeenSeq = srvSeq;
           if (env.device_id === this.keyring.deviceId) {
             progress.pulledCount++;
             continue;

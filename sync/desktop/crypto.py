@@ -30,6 +30,8 @@ ARGON2ID_MEM_KIB = 65536
 ARGON2ID_MEM_BYTES = ARGON2ID_MEM_KIB * 1024  # 67108864
 ARGON2ID_ITERATIONS = 3
 ARGON2ID_PARALLELISM = 1
+ARGON2ID_MAX_MEM_KIB = 524288  # 512 MiB cap against KDF OOM DoS
+ARGON2ID_MAX_ITERATIONS = 20
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _B64U_NOPAD_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -313,6 +315,10 @@ def canonical_json_bytes(value: Any) -> bytes:
 # ── Argon2id13 ─────────────────────────────────────────────────────────────────
 
 
+def _zero_c_buf(buf: ctypes.Array[ctypes.c_char]) -> None:
+    ctypes.memset(ctypes.addressof(buf), 0, len(buf))
+
+
 def derive_argon2id_kek(
     password_utf8: str,
     salt16: bytes,
@@ -324,27 +330,40 @@ def derive_argon2id_kek(
         raise ValueError(f"Argon2id salt must be 16 bytes, got {len(salt16)}")
     if parallelism != 1:
         raise ValueError(f"Unsupported Argon2id parallelism={parallelism}; V1 requires p=1")
-    if memory_kib < 8192 or iterations < 1:
-        raise ValueError("Unsafe Argon2id parameters")
+    if (
+        not isinstance(memory_kib, int)
+        or isinstance(memory_kib, bool)
+        or not isinstance(iterations, int)
+        or isinstance(iterations, bool)
+        or memory_kib < 8192
+        or memory_kib > ARGON2ID_MAX_MEM_KIB
+        or iterations < 1
+        or iterations > ARGON2ID_MAX_ITERATIONS
+    ):
+        raise ValueError("Unsafe or out-of-bounds Argon2id parameters")
 
     s = _get_sodium()
     pw_bytes = password_utf8.encode("utf-8")
     out = ctypes.create_string_buffer(32)
     pw_buf = ctypes.create_string_buffer(pw_bytes, len(pw_bytes))
     salt_buf = ctypes.create_string_buffer(salt16, 16)
-    rc = s.lib.crypto_pwhash(
-        out,
-        32,
-        pw_buf,
-        len(pw_bytes),
-        salt_buf,
-        iterations,
-        memory_kib * 1024,
-        s.lib.crypto_pwhash_alg_argon2id13(),
-    )
-    if rc != 0:
-        raise RuntimeError("crypto_pwhash failed")
-    return out.raw
+    try:
+        rc = s.lib.crypto_pwhash(
+            out,
+            32,
+            pw_buf,
+            len(pw_bytes),
+            salt_buf,
+            iterations,
+            memory_kib * 1024,
+            s.lib.crypto_pwhash_alg_argon2id13(),
+        )
+        if rc != 0:
+            raise RuntimeError("crypto_pwhash failed")
+        return out.raw
+    finally:
+        _zero_c_buf(pw_buf)
+        _zero_c_buf(out)
 
 
 # ── Key Hierarchy ──────────────────────────────────────────────────────────────
@@ -761,8 +780,14 @@ def seal_epoch_key_for_device(
 ) -> str:
     assert_uuid(vault_id)
     assert_uuid(target_device_id)
+    if not isinstance(key_epoch, int) or isinstance(key_epoch, bool) or key_epoch < 1:
+        raise ValueError("key_epoch must be >= 1")
     if len(epoch_root_key) != 32:
         raise ValueError("EpochRootKey must be 32 bytes")
+    s = _get_sodium()
+    pk_len = s.lib.crypto_box_publickeybytes()
+    if len(device_public_key) != pk_len:
+        raise ValueError(f"Device X25519 public key must be {pk_len} bytes, got {len(device_public_key)}")
     payload = canonical_json_bytes(
         {
             "domain": "NOTEOR/SYNC/V1/DEVICE-WRAP",
@@ -772,7 +797,6 @@ def seal_epoch_key_for_device(
             "vault_id": vault_id,
         }
     )
-    s = _get_sodium()
     sealed = ctypes.create_string_buffer(len(payload) + s.lib.crypto_box_sealbytes())
     if s.lib.crypto_box_seal(sealed, _as_c_buf(payload), len(payload), _as_c_buf(device_public_key)) != 0:
         raise RuntimeError("crypto_box_seal failed")
@@ -789,31 +813,40 @@ def unseal_epoch_key_for_device(
 ) -> bytes:
     sealed = from_b64u(sealed_b64u)
     s = _get_sodium()
+    pk_len = s.lib.crypto_box_publickeybytes()
+    sk_len = s.lib.crypto_box_secretkeybytes()
+    if len(device_public_key) != pk_len:
+        raise ValueError(f"Device X25519 public key must be {pk_len} bytes, got {len(device_public_key)}")
+    if len(device_private_key) != sk_len:
+        raise ValueError(f"Device X25519 private key must be {sk_len} bytes, got {len(device_private_key)}")
     sealbytes = s.lib.crypto_box_sealbytes()
     if len(sealed) < sealbytes:
         raise ValueError("Sealed payload too short")
     plain = ctypes.create_string_buffer(max(1, len(sealed) - sealbytes))
-    rc = s.lib.crypto_box_seal_open(
-        plain,
-        _as_c_buf(sealed),
-        len(sealed),
-        _as_c_buf(device_public_key),
-        _as_c_buf(device_private_key),
-    )
-    if rc != 0:
-        raise ValueError("Failed to unseal epoch key")
-    obj = json.loads(plain.raw[: len(sealed) - sealbytes].decode("utf-8"))
-    if (
-        obj.get("domain") != "NOTEOR/SYNC/V1/DEVICE-WRAP"
-        or obj.get("vault_id") != expected_vault_id
-        or obj.get("key_epoch") != expected_key_epoch
-        or obj.get("target_device_id") != expected_target_device_id
-    ):
-        raise ValueError("Sealed epoch key domain/context mismatch")
-    key = from_b64u(obj["epoch_root_key_b64u"])
-    if len(key) != 32:
-        raise ValueError("Invalid unsealed epoch root key length")
-    return key
+    try:
+        rc = s.lib.crypto_box_seal_open(
+            plain,
+            _as_c_buf(sealed),
+            len(sealed),
+            _as_c_buf(device_public_key),
+            _as_c_buf(device_private_key),
+        )
+        if rc != 0:
+            raise ValueError("Failed to unseal epoch key")
+        obj = json.loads(plain.raw[: len(sealed) - sealbytes].decode("utf-8"))
+        if (
+            obj.get("domain") != "NOTEOR/SYNC/V1/DEVICE-WRAP"
+            or obj.get("vault_id") != expected_vault_id
+            or obj.get("key_epoch") != expected_key_epoch
+            or obj.get("target_device_id") != expected_target_device_id
+        ):
+            raise ValueError("Sealed epoch key domain/context mismatch")
+        key = from_b64u(obj["epoch_root_key_b64u"])
+        if len(key) != 32:
+            raise ValueError("Invalid unsealed epoch root key length")
+        return key
+    finally:
+        _zero_c_buf(plain)
 
 
 def compute_secret_proof_hmac(

@@ -10,17 +10,30 @@ from __future__ import annotations
 import json
 import os
 import re
+import select
+import socket
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from .services.sync_service import ApiError, SyncService
+from .services.sync_service import MAX_HTTP_CHUNK_SIZE, ApiError, SyncService
 from .storage.database import SyncStorage
 
+MAX_JSON_BODY_BYTES = 16 * 1024 * 1024  # 16 MiB
+DEFAULT_DEV_CORS_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
-def make_handler(service: SyncService, cors_origin: str = "*") -> type[BaseHTTPRequestHandler]:
+
+def _resolve_cors_origins(cors_origin: str | None = None) -> list[str]:
+    raw = cors_origin if cors_origin is not None else os.environ.get("NOTEOR_CORS_ORIGINS", "")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    return origins if origins else list(DEFAULT_DEV_CORS_ORIGINS)
+
+
+def make_handler(service: SyncService, cors_origin: str | None = None) -> type[BaseHTTPRequestHandler]:
+    allowed_origins = _resolve_cors_origins(cors_origin)
+
     class SyncHttpHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -28,28 +41,64 @@ def make_handler(service: SyncService, cors_origin: str = "*") -> type[BaseHTTPR
             pass
 
         def _send_cors(self) -> None:
-            self.send_header("Access-Control-Allow-Origin", cors_origin)
+            req_origin = self.headers.get("Origin")
+            if "*" in allowed_origins:
+                self.send_header("Access-Control-Allow-Origin", "*")
+            elif req_origin and req_origin in allowed_origins:
+                self.send_header("Access-Control-Allow-Origin", req_origin)
+                self.send_header("Vary", "Origin")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, Content-Range")
 
-        def _send_json(self, status: int, data: Any) -> None:
+        def _send_json(self, status: int, data: Any, close_conn: bool = False) -> None:
             raw = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
             self.send_response(status)
             self._send_cors()
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(raw)))
+            if close_conn:
+                self.send_header("Connection", "close")
+                self.close_connection = True
             self.end_headers()
             self.wfile.write(raw)
+            self.wfile.flush()
 
-        def _send_bytes(self, status: int, raw: bytes) -> None:
+        def _drain_unread_bounded(self, max_drain: int = 8 * 1024 * 1024) -> None:
+            try:
+                self.connection.shutdown(socket.SHUT_WR)
+            except OSError:
+                return
+            drained = 0
+            while drained < max_drain:
+                readable, _, _ = select.select([self.connection], [], [], 0.05)
+                if not readable:
+                    break
+                try:
+                    chunk = self.connection.recv(65536)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                drained += len(chunk)
+
+        def _stream_file(self, status: int, file_path: Path) -> None:
+            size = file_path.stat().st_size
             self.send_response(status)
             self._send_cors()
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(len(raw)))
+            self.send_header("Content-Length", str(size))
             self.end_headers()
-            self.wfile.write(raw)
+            with open(file_path, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
 
-        def _read_body(self) -> bytes:
+        def _read_body(self, max_bytes: int, too_large_code: str) -> bytes:
             raw_len = self.headers.get("Content-Length", "0")
             try:
                 length = int(raw_len)
@@ -57,6 +106,12 @@ def make_handler(service: SyncService, cors_origin: str = "*") -> type[BaseHTTPR
                 raise ValueError("Invalid Content-Length header") from exc
             if length < 0:
                 raise ValueError("Negative Content-Length header")
+            if length > max_bytes:
+                raise ApiError(
+                    413,
+                    too_large_code,
+                    f"Request body length {length} exceeds limit {max_bytes}",
+                )
             return self.rfile.read(length) if length > 0 else b""
 
         def do_OPTIONS(self) -> None:
@@ -72,7 +127,13 @@ def make_handler(service: SyncService, cors_origin: str = "*") -> type[BaseHTTPR
             auth = self.headers.get("Authorization")
 
             try:
-                raw_body = self._read_body()
+                is_media_put = method == "PUT" and bool(
+                    re.match(r"^/api/v1/vaults/([^/]+)/media/uploads/([^/]+)$", path)
+                )
+                raw_body = self._read_body(
+                    MAX_HTTP_CHUNK_SIZE if is_media_put else MAX_JSON_BODY_BYTES,
+                    "CHUNK_TOO_LARGE" if is_media_put else "PAYLOAD_TOO_LARGE",
+                )
 
                 def _json_body() -> dict[str, Any]:
                     return json.loads(raw_body.decode("utf-8")) if raw_body else {}
@@ -198,7 +259,7 @@ def make_handler(service: SyncService, cors_origin: str = "*") -> type[BaseHTTPR
                     vid, mid = m.group(1), m.group(2)
                     service.authenticate(auth, vid)
                     blob_path = service.get_media_blob(vid, mid)
-                    self._send_bytes(200, blob_path.read_bytes())
+                    self._stream_file(200, blob_path)
                     return
                 if m and method == "DELETE":
                     vid, mid = m.group(1), m.group(2)
@@ -208,7 +269,10 @@ def make_handler(service: SyncService, cors_origin: str = "*") -> type[BaseHTTPR
 
                 self._send_json(404, {"error": {"code": "NOT_FOUND", "message": "Route not found", "details": {}}})
             except ApiError as exc:
-                self._send_json(exc.status, exc.to_dict())
+                is_413 = exc.status == 413
+                self._send_json(exc.status, exc.to_dict(), close_conn=is_413)
+                if is_413:
+                    self._drain_unread_bounded()
             except ValueError as exc:
                 self._send_json(400, {"error": {"code": "INVALID_PAYLOAD", "message": str(exc), "details": {}}})
             except Exception as exc:  # pragma: no cover
@@ -234,10 +298,11 @@ def start_background_server(
     blob_dir: str | Path,
     host: str = "127.0.0.1",
     port: int = 0,
+    cors_origin: str | None = None,
 ) -> tuple[ThreadingHTTPServer, SyncStorage, str]:
     storage = SyncStorage(db_path, blob_dir)
     service = SyncService(storage)
-    httpd = ThreadingHTTPServer((host, port), make_handler(service))
+    httpd = ThreadingHTTPServer((host, port), make_handler(service, cors_origin=cors_origin))
     actual_port = httpd.server_address[1]
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
     t.start()

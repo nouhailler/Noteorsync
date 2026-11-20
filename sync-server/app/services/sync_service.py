@@ -30,7 +30,10 @@ def _now_iso() -> str:
 
 
 def _parse_iso(ts: str) -> datetime:
-    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        raise ValueError("Timestamp must include timezone offset")
+    return dt
 
 
 def _sha256_hex(raw: bytes | str) -> str:
@@ -111,13 +114,20 @@ class SyncService:
         token_hash = _sha256_hex(token)
         ts = _now_iso()
         vsk_env = body.get("vsk_recovery_envelope")
+        vsk_env_json: str | None = None
+        if vsk_env is not None:
+            if not isinstance(vsk_env, dict):
+                raise ApiError(400, "INVALID_PAYLOAD", "vsk_recovery_envelope must be an object")
+            vsk_env_json = json.dumps(vsk_env, separators=(",", ":"), ensure_ascii=False)
+            if len(vsk_env_json.encode("utf-8")) > 16384:
+                raise ApiError(400, "INVALID_PAYLOAD", "vsk_recovery_envelope exceeds 16 KiB limit")
 
         with self.storage.transaction() as c:
             if c.execute("SELECT 1 FROM vaults WHERE vault_id=?", (vault_id,)).fetchone():
                 raise ApiError(409, "VAULT_EXISTS", "Vault already initialized")
             c.execute(
                 "INSERT INTO vaults(vault_id, created_at, current_key_epoch, vsk_recovery_envelope_json) VALUES (?, ?, 1, ?)",
-                (vault_id, ts, json.dumps(vsk_env) if vsk_env else None),
+                (vault_id, ts, vsk_env_json),
             )
             c.execute(
                 """INSERT INTO devices
@@ -279,9 +289,11 @@ class SyncService:
     def pull_operations(self, vault_id: str, since_seq_raw: str = "0", limit_raw: int = 200) -> dict[str, Any]:
         assert_uuid(vault_id, "vault_id")
         try:
-            since_seq = max(0, int(since_seq_raw))
-            limit = max(1, min(200, int(limit_raw)))
-        except ValueError as exc:
+            since_seq = int(since_seq_raw)
+            limit = int(limit_raw)
+            if since_seq < 0 or limit < 1 or limit > 200:
+                raise ValueError("Pagination out of bounds")
+        except (ValueError, TypeError) as exc:
             raise ApiError(400, "INVALID_PAYLOAD", "Invalid pagination parameters") from exc
 
         rows = self.storage.conn.execute(
@@ -545,6 +557,7 @@ class SyncService:
         token_hash = _sha256_hex(token)
         ts = _now_iso()
 
+        mismatch_error = False
         with self.storage.transaction() as c:
             sess = self._get_valid_pairing_in_tx(c, vault_id, pairing_id)
             if sess["status"] != "approved":
@@ -554,26 +567,30 @@ class SyncService:
                 c.execute("UPDATE pairing_sessions SET failed_attempts=? WHERE pairing_id=?", (attempts, pairing_id))
                 if attempts >= MAX_PAIRING_ATTEMPTS:
                     c.execute("UPDATE pairing_sessions SET status='locked' WHERE pairing_id=?", (pairing_id,))
-                raise ApiError(403, "DEVICE_MISMATCH", "device_b_id mismatch")
-            if c.execute("SELECT 1 FROM devices WHERE device_id=?", (dev_b_id,)).fetchone():
-                raise ApiError(409, "DEVICE_EXISTS", "Device ID already registered")
+                mismatch_error = True
+            else:
+                if c.execute("SELECT 1 FROM devices WHERE device_id=?", (dev_b_id,)).fetchone():
+                    raise ApiError(409, "DEVICE_EXISTS", "Device ID already registered")
 
-            c.execute(
-                """INSERT INTO devices
-                   (device_id, vault_id, device_name, device_type, public_key_x25519, token_hash_sha256, status, last_device_seq, created_at, last_seen_at)
-                   VALUES (?, ?, ?, ?, ?, ?, 'active', 0, ?, ?)""",
-                (
-                    dev_b_id,
-                    vault_id,
-                    sess["device_b_name"],
-                    sess["device_b_type"],
-                    sess["device_b_public_key_x25519"],
-                    token_hash,
-                    ts,
-                    ts,
-                ),
-            )
-            c.execute("UPDATE pairing_sessions SET status='confirmed' WHERE pairing_id=?", (pairing_id,))
+                c.execute(
+                    """INSERT INTO devices
+                       (device_id, vault_id, device_name, device_type, public_key_x25519, token_hash_sha256, status, last_device_seq, created_at, last_seen_at)
+                       VALUES (?, ?, ?, ?, ?, ?, 'active', 0, ?, ?)""",
+                    (
+                        dev_b_id,
+                        vault_id,
+                        sess["device_b_name"],
+                        sess["device_b_type"],
+                        sess["device_b_public_key_x25519"],
+                        token_hash,
+                        ts,
+                        ts,
+                    ),
+                )
+                c.execute("UPDATE pairing_sessions SET status='confirmed' WHERE pairing_id=?", (pairing_id,))
+
+        if mismatch_error:
+            raise ApiError(403, "DEVICE_MISMATCH", "device_b_id mismatch")
 
         return {"status": "confirmed", "device_access_token": token}
 
@@ -694,14 +711,24 @@ class SyncService:
                     "encrypted_sha256": row["encrypted_sha256"],
                 }
             part_path = self.storage.media_part_path(vault_id, media_id)
-            data = part_path.read_bytes()
-            if len(data) != int(row["encrypted_size"]):
+            if not part_path.is_file():
+                raise ApiError(400, "SIZE_MISMATCH", f"Expected {row['encrypted_size']} bytes, got 0")
+            hasher = hashlib.sha256()
+            actual_size = 0
+            with open(part_path, "rb") as f:
+                while True:
+                    blk = f.read(1048576)
+                    if not blk:
+                        break
+                    actual_size += len(blk)
+                    hasher.update(blk)
+            if actual_size != int(row["encrypted_size"]):
                 raise ApiError(
                     400,
                     "SIZE_MISMATCH",
-                    f"Expected {row['encrypted_size']} bytes, got {len(data)}",
+                    f"Expected {row['encrypted_size']} bytes, got {actual_size}",
                 )
-            got_sha = _sha256_hex(data)
+            got_sha = hasher.hexdigest()
             if not hmac.compare_digest(got_sha, row["encrypted_sha256"]):
                 raise ApiError(400, "CHECKSUM_MISMATCH", "Uploaded encrypted_sha256 mismatch")
 

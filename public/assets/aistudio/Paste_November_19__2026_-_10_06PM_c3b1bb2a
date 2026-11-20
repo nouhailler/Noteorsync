@@ -1,0 +1,1207 @@
+# MISSION PRÉPRODUCTION — VALIDATION CI, SERVEUR FASTAPI ET SÉCURITÉ E2E DE NOTEORSYNC
+
+**Dépôt :** `https://github.com/nouhailler/Noteorsync`
+
+**Nature de la mission :** validation technique, sécuritaire et opérationnelle avant intégration et mise en production.
+
+**Périmètre :** infrastructure CI/CD, serveur FastAPI/Uvicorn, sécurité du serveur, audit indépendant du chiffrement de bout en bout.
+
+---
+
+# 0. CONTEXTE ET OBJECTIF GÉNÉRAL
+
+Tu interviens sur le dépôt Noteorsync.
+
+Ce dépôt constitue le socle de synchronisation destiné à permettre les échanges sécurisés entre :
+
+- Noteor Desktop : Python / PyQt6 / SQLite.
+- Noteor PWA : React / TypeScript / Dexie / IndexedDB.
+- Noteor Sync Server : FastAPI / SQLite.
+
+L'architecture retenue est Local-First, avec un serveur facultatif auto-hébergé par l'utilisateur.
+
+Les données synchronisées doivent rester chiffrées de bout en bout. Le serveur ne doit jamais disposer des secrets permettant de déchiffrer le contenu des coffres.
+
+Les documents de référence sont :
+
+- `docs/sync/NOTEOR_SYNC_ARCHITECTURE.md`
+- `docs/sync/NOTEOR_SYNC_PROTOCOL.md`
+- `docs/sync/NOTEOR_SYNC_CRYPTO.md`
+- `docs/sync/NOTEOR_SYNC_DATA_MODEL.md`
+- `docs/sync/NOTEOR_SYNC_CONFORMANCE_REPORT.md`
+
+Ces documents constituent la référence de travail, mais ne doivent jamais être considérés comme une preuve que le code respecte effectivement leurs exigences.
+
+Tu dois vérifier les implémentations réelles.
+
+## Objectif de cette mission
+
+Obtenir des preuves reproductibles concernant trois domaines :
+
+1. Une CI GitHub Actions complète, exécutable et fiable.
+2. Le fonctionnement réel du serveur FastAPI/Uvicorn et sa résistance aux erreurs et abus prévisibles.
+3. La sécurité indépendante du mécanisme E2E, notamment la hiérarchie des clés, le chiffrement, le jumelage, la révocation et la rotation.
+
+## RÈGLE FONDAMENTALE
+
+Cette mission ne doit introduire aucune nouvelle fonctionnalité métier.
+
+Elle doit :
+
+- ajouter l'infrastructure de tests et de CI nécessaire ;
+- vérifier les fonctionnalités existantes ;
+- corriger les défauts identifiés lorsque leur correction est circonscrite ;
+- renforcer les tests de sécurité ;
+- documenter les limites et les risques résiduels.
+
+Ne pas réécrire les applications, le protocole ou l'architecture.
+
+Toute modification touchant au protocole cryptographique, aux formats de données, aux clés ou à leur distribution doit être considérée comme une modification sensible et explicitement justifiée.
+
+Si une correction exige une décision d'architecture, interrompre cette partie et produire une proposition motivée plutôt que de prendre une décision silencieuse.
+
+---
+
+# PHASE 0 — INVENTAIRE ET GEL DE RÉFÉRENCE
+
+Avant toute modification :
+
+1. Examiner l'intégralité du dépôt.
+2. Identifier la branche active et le commit de référence.
+3. Vérifier les fichiers de configuration et les dépendances.
+4. Identifier toutes les suites de tests existantes.
+5. Identifier les commandes réelles de build, lint et tests.
+6. Examiner les workflows GitHub Actions déjà présents, s'il y en a.
+7. Vérifier les instructions d'installation et de lancement du serveur.
+8. Identifier les éventuelles dépendances facultatives et les dépendances de production.
+
+Examiner notamment, si ces chemins existent :
+
+- `sync/desktop/`
+- `web/src/sync/`
+- `sync-server/app/`
+- `sync-server/tests/`
+- `tests/`
+- `tests/crypto-vectors/`
+- `.github/workflows/`
+- `docs/sync/`
+
+Ne pas supposer que ces chemins sont exhaustifs.
+
+Produire un inventaire des composants et des commandes disponibles.
+
+Créer un état initial des tests :
+
+| Domaine | Commande | Résultat initial |
+|---|---|---|
+| Tests Python | À identifier | À exécuter |
+| Tests TypeScript | À identifier | À exécuter |
+| Build PWA | À identifier | À exécuter |
+| Lint | À identifier | À exécuter |
+| Tests serveur | À identifier | À exécuter |
+| Tests cryptographiques | À identifier | À exécuter |
+
+Conserver les résultats réels.
+
+Ne pas corriger les erreurs initiales avant d'avoir établi cet état de référence.
+
+Livrable :
+
+`docs/sync/NOTEOR_SYNC_PREPRODUCTION_BASELINE.md`
+
+Critères d'acceptation :
+
+- Toutes les suites de tests connues sont inventoriées.
+- Les commandes sont reproductibles.
+- Les échecs initiaux sont documentés.
+- Le commit de référence est identifié.
+- Aucune modification fonctionnelle n'a été effectuée.
+
+---
+
+# PHASE 1 — MISE EN PLACE D'UNE VÉRITABLE CI GITHUB ACTIONS
+
+## 1.1 Objectif
+
+Créer une intégration continue qui vérifie automatiquement les composants Python, TypeScript, cryptographiques et serveur.
+
+La CI doit être utilisable par un contributeur sans intervention manuelle.
+
+Elle doit fonctionner :
+
+- sur les Pull Requests ;
+- sur les pushes vers les branches principales ;
+- sur les modifications des composants concernés ;
+- sur les déclenchements manuels lorsque cela est pertinent.
+
+Ne pas créer une CI qui se contente de vérifier la syntaxe ou de lancer quelques tests superficiels.
+
+## 1.2 Inventaire des outils
+
+Identifier les outils réellement utilisés dans le projet :
+
+- version Python ;
+- version Node.js ;
+- gestionnaire de paquets JavaScript ;
+- fichier de verrouillage ;
+- outil de tests Python ;
+- outil de tests TypeScript ;
+- outil de lint ;
+- outil de formatage ;
+- outils de compilation ;
+- dépendances cryptographiques ;
+- dépendances FastAPI/Uvicorn.
+
+Ne pas remplacer les outils existants sans justification.
+
+Utiliser les versions et fichiers de verrouillage du projet.
+
+## 1.3 Workflows à mettre en place
+
+Créer une organisation de workflows lisible.
+
+Un ou plusieurs workflows peuvent être utilisés selon les dépendances réelles du dépôt.
+
+### A. CI Python
+
+Vérifier :
+
+- installation propre des dépendances ;
+- compilation Python ;
+- lint ;
+- formatage en mode vérification ;
+- tests unitaires ;
+- tests d'intégration ;
+- tests cryptographiques ;
+- tests du serveur ;
+- couverture de tests lorsque disponible.
+
+Exécuter les tests avec les versions Python supportées par le projet.
+
+Si plusieurs versions sont officiellement supportées, utiliser une matrice.
+
+Ne pas prétendre supporter des versions qui n'ont pas été testées.
+
+### B. CI TypeScript / PWA
+
+Vérifier :
+
+- installation reproductible depuis le lockfile ;
+- vérification TypeScript ;
+- lint ;
+- formatage ;
+- tests unitaires ;
+- tests cryptographiques ;
+- build de production.
+
+La CI ne doit pas contourner les erreurs TypeScript avec des options permissives ajoutées uniquement pour faire passer le build.
+
+### C. CI d'interopérabilité cryptographique
+
+C'est un contrôle essentiel.
+
+Les tests Python et TypeScript doivent utiliser exactement les mêmes fichiers de vecteurs.
+
+Vérifier au minimum :
+
+- HKDF-SHA-256 ;
+- RFC 5869 A.1 ;
+- Argon2id ;
+- XChaCha20-Poly1305 ;
+- RFC 8785 / JCS ;
+- construction de l'AAD ;
+- encodage Base64URL ;
+- conversion UUID vers octets ;
+- format NTRM1 ;
+- secretstream ;
+- jumelage ;
+- enveloppement des clés d'époque ;
+- cas de données invalides.
+
+Les tests croisés doivent démontrer que :
+
+1. Python chiffre et TypeScript déchiffre.
+2. TypeScript chiffre et Python déchiffre.
+3. Les deux environnements produisent les mêmes résultats pour les vecteurs déterministes.
+4. Les modifications d'un octet dans les données authentifiées sont rejetées.
+
+Ne pas se contenter de deux tests locaux indépendants.
+
+### D. CI serveur
+
+Vérifier :
+
+- installation des dépendances de production ;
+- installation des dépendances de test ;
+- import de l'application FastAPI ;
+- démarrage Uvicorn ;
+- tests HTTP ;
+- tests de persistance ;
+- tests de reprise après redémarrage ;
+- tests d'autorisation ;
+- tests de validation des requêtes.
+
+### E. Vérification des dépendances
+
+Ajouter des contrôles adaptés à l'écosystème existant :
+
+- `pip-audit` ou outil équivalent pour Python ;
+- `npm audit` ou outil équivalent pour JavaScript ;
+- détection des dépendances obsolètes ou vulnérables ;
+- détection des secrets accidentellement commités.
+
+Les vulnérabilités doivent être classées par sévérité et exploitabilité.
+
+Ne pas faire échouer aveuglément toute la CI sur une vulnérabilité non exploitable sans expliquer le contexte.
+
+En revanche, toute vulnérabilité critique ou élevée affectant réellement le périmètre de production doit provoquer un échec ou un blocage explicite.
+
+Ne jamais exposer de secrets dans les logs.
+
+## 1.4 Qualité des workflows
+
+Les workflows doivent :
+
+- utiliser des permissions minimales ;
+- ne pas utiliser de token disposant de droits inutiles ;
+- épingler les actions tierces sur des versions fiables et, lorsque possible, des SHA complets ;
+- utiliser des caches sans compromettre l'intégrité des dépendances ;
+- éviter les secrets sur les workflows exécutés depuis des forks ;
+- définir des timeouts ;
+- produire des rapports de tests lisibles ;
+- échouer si un contrôle obligatoire échoue.
+
+Ne pas utiliser `continue-on-error` pour masquer les échecs des contrôles obligatoires.
+
+Ne pas publier de release ou déployer automatiquement le serveur pendant cette mission.
+
+## 1.5 Protection des branches
+
+Documenter les contrôles qui doivent être rendus obligatoires dans les règles de protection GitHub :
+
+- CI Python ;
+- CI TypeScript ;
+- tests d'interopérabilité ;
+- tests serveur ;
+- contrôles de sécurité.
+
+Si la configuration GitHub ne peut pas être modifiée depuis l'environnement Codex, documenter les réglages à effectuer manuellement.
+
+## 1.6 Critères d'acceptation
+
+La phase est validée uniquement si :
+
+- les workflows existent dans `.github/workflows/` ;
+- ils sont syntaxiquement valides ;
+- ils s'exécutent sur GitHub Actions ;
+- ils installent les dépendances proprement ;
+- ils exécutent les tests réels ;
+- ils échouent volontairement lorsqu'un test obligatoire échoue ;
+- les rapports sont accessibles ;
+- aucun secret n'est exposé ;
+- les résultats sont reproductibles.
+
+Une exécution locale ne suffit pas à démontrer qu'une CI GitHub Actions fonctionne réellement.
+
+Si aucun push ou accès GitHub Actions n'est possible, signaler explicitement que l'exécution distante reste à effectuer.
+
+---
+
+# PHASE 2 — VALIDATION DU SERVEUR FASTAPI / UVICORN
+
+## 2.1 Objectif
+
+Valider le véritable serveur de production.
+
+Le fait que `stdlib_server.py` fonctionne ne suffit pas.
+
+Il faut démontrer que l'application FastAPI fonctionne réellement sous Uvicorn, avec ses dépendances de production et son cycle de vie normal.
+
+Examiner notamment :
+
+- `sync-server/app/main.py`
+- `sync-server/app/stdlib_server.py`
+- `sync-server/app/services/`
+- `sync-server/tests/`
+- les fichiers de dépendances ;
+- les configurations ;
+- les scripts de lancement ;
+- les conteneurs éventuels.
+
+## 2.2 Démarrage réel
+
+Créer un environnement propre.
+
+Installer les dépendances documentées.
+
+Démarrer le serveur via la commande réellement prévue pour la production.
+
+Vérifier :
+
+- import de l'application ;
+- initialisation ;
+- migrations ou création du schéma ;
+- démarrage Uvicorn ;
+- écoute HTTP ;
+- arrêt propre ;
+- redémarrage ;
+- récupération de l'état persistant.
+
+Ne pas substituer un serveur de test à FastAPI.
+
+## 2.3 Tests HTTP complets
+
+Tester le protocole réellement documenté dans `NOTEOR_SYNC_PROTOCOL.md`.
+
+Vérifier chaque endpoint :
+
+- méthode HTTP ;
+- chemin ;
+- authentification ;
+- autorisation ;
+- paramètres ;
+- validation du corps ;
+- format de réponse ;
+- code HTTP ;
+- comportement idempotent ;
+- gestion des erreurs.
+
+Tester les parcours complets :
+
+1. Création d'un coffre.
+2. Enregistrement d'un appareil.
+3. Demande de jumelage.
+4. Validation du jumelage.
+5. Distribution des informations nécessaires.
+6. Envoi d'opérations chiffrées.
+7. Récupération différentielle.
+8. Synchronisation des médias.
+9. Révocation d'un appareil.
+10. Refus des opérations d'un appareil révoqué.
+11. Rotation des clés d'époque.
+12. Reprise après interruption.
+13. Redémarrage du serveur.
+
+Comparer les comportements observés aux contrats documentés.
+
+Toute divergence doit être signalée.
+
+## 2.4 Authentification et autorisation
+
+Auditer les contrôles d'accès.
+
+Vérifier :
+
+- les jetons d'accès ;
+- leur génération ;
+- leur validation ;
+- leur expiration ;
+- leur révocation ;
+- leur stockage ;
+- leur transmission ;
+- leur périmètre d'autorisation.
+
+Vérifier qu'un appareil appartenant à un coffre ne peut pas accéder aux données d'un autre coffre.
+
+Tester les scénarios suivants :
+
+- requête sans jeton ;
+- jeton invalide ;
+- jeton expiré ;
+- jeton révoqué ;
+- appareil inconnu ;
+- appareil révoqué ;
+- identifiant de coffre modifié ;
+- identifiant d'opération appartenant à un autre coffre ;
+- accès à un média non autorisé.
+
+Les refus doivent être explicites et cohérents.
+
+Ne pas révéler dans les messages d'erreur des informations permettant d'énumérer les coffres ou les appareils.
+
+## 2.5 Protection contre les abus
+
+Examiner et tester :
+
+- taille maximale des requêtes ;
+- taille maximale des médias ;
+- nombre d'opérations par requête ;
+- pagination ;
+- validation des identifiants ;
+- validation des séquences ;
+- protection contre les requêtes malformées ;
+- limites de concurrence ;
+- timeouts ;
+- comportement en cas de surcharge ;
+- gestion des connexions interrompues.
+
+Vérifier les risques de :
+
+- déni de service par requêtes volumineuses ;
+- consommation excessive de mémoire ;
+- uploads incomplets ;
+- multiplication de demandes de jumelage ;
+- rejeu d'opérations ;
+- séquences incohérentes ;
+- épuisement de l'espace disque.
+
+Ne pas introduire de mécanisme métier supplémentaire. Les protections nécessaires doivent rester cohérentes avec le protocole existant.
+
+## 2.6 Protection des données serveur
+
+Le serveur ne doit pas connaître les clés permettant de déchiffrer les notes ou les médias.
+
+Vérifier concrètement :
+
+- les données stockées en SQLite ;
+- les fichiers médias ;
+- les journaux ;
+- les traces d'erreur ;
+- les fichiers temporaires ;
+- les sauvegardes ;
+- les réponses HTTP.
+
+Rechercher notamment :
+
+- VSK en clair ;
+- clés d'époque en clair ;
+- clés privées d'appareils ;
+- mots de passe ;
+- secrets de jumelage ;
+- contenu de notes ;
+- contenu de médias ;
+- jetons d'accès dans les logs.
+
+Un serveur E2E peut conserver certaines métadonnées techniques.
+
+Identifier précisément lesquelles sont visibles :
+
+- identifiants techniques ;
+- tailles ;
+- séquences ;
+- dates ;
+- nombre d'appareils ;
+- tailles des médias ;
+- relations éventuellement observables.
+
+Documenter les fuites de métadonnées et leur impact.
+
+## 2.7 SQLite et intégrité
+
+Vérifier :
+
+- activation effective de WAL si prévue ;
+- contraintes d'intégrité ;
+- clés étrangères ;
+- transactions ;
+- index ;
+- concurrence ;
+- comportement lors d'écritures simultanées ;
+- cohérence des séquences ;
+- reprise après interruption ;
+- sauvegarde et restauration.
+
+Tester notamment :
+
+- interruption pendant une écriture ;
+- arrêt brutal du processus ;
+- redémarrage ;
+- double soumission d'une opération ;
+- soumissions concurrentes ;
+- upload interrompu ;
+- finalisation répétée.
+
+Les opérations doivent rester idempotentes lorsque le protocole l'exige.
+
+## 2.8 Configuration de production
+
+Auditer les paramètres de configuration :
+
+- adresse d'écoute ;
+- port ;
+- mode debug ;
+- CORS ;
+- proxy headers ;
+- HTTPS / terminaison TLS ;
+- secrets ;
+- chemins de stockage ;
+- permissions des fichiers ;
+- paramètres SQLite ;
+- limites de requêtes ;
+- logs.
+
+Le serveur ne doit pas démarrer en mode production avec des secrets de développement ou des configurations dangereuses par défaut.
+
+Ne pas supposer que le serveur doit être exposé directement à Internet : l'architecture cible privilégie un accès privé via VPN.
+
+Documenter les prérequis d'exploitation :
+
+- WireGuard ou Tailscale ;
+- HTTPS lorsque nécessaire ;
+- pare-feu ;
+- sauvegardes ;
+- permissions ;
+- mises à jour ;
+- supervision minimale.
+
+## 2.9 Critères d'acceptation
+
+Cette phase est validée uniquement si :
+
+- FastAPI démarre réellement sous Uvicorn ;
+- les endpoints documentés fonctionnent ;
+- les scénarios complets réussissent ;
+- les contrôles d'accès sont testés ;
+- les données restent persistantes après redémarrage ;
+- les tests négatifs sont exécutés ;
+- aucun secret de déchiffrement n'est accessible au serveur ;
+- les configurations dangereuses sont identifiées ;
+- les écarts au protocole sont corrigés ou explicitement bloqués.
+
+---
+
+# PHASE 3 — AUDIT DE SÉCURITÉ INDÉPENDANT DU MÉCANISME E2E
+
+## 3.1 Objectif
+
+Réaliser un audit contradictoire de l'architecture cryptographique et de ses implémentations Python et TypeScript.
+
+Ne pas se limiter à vérifier que les fonctions sont présentes.
+
+Il faut rechercher activement les erreurs de conception, les erreurs d'implémentation, les mauvaises utilisations des primitives et les scénarios de compromission.
+
+L'objectif n'est pas de certifier formellement le système, mais d'identifier les risques qui pourraient compromettre la confidentialité, l'intégrité ou l'authenticité des données.
+
+## 3.2 Établir le modèle de menace
+
+Reprendre le modèle de menace de `NOTEOR_SYNC_CRYPTO.md`.
+
+Vérifier les hypothèses suivantes :
+
+- le serveur peut être compromis ;
+- le serveur peut être curieux ou malveillant ;
+- un réseau peut être intercepté ;
+- un jeton peut être volé ;
+- un appareil peut être perdu ;
+- un appareil peut être révoqué ;
+- un utilisateur peut fournir un mot de passe faible ;
+- un upload peut être modifié ;
+- un message peut être rejoué ;
+- un ciphertext peut être altéré ;
+- un appareil autorisé peut être compromis.
+
+Distinguer :
+
+1. Les attaques contre le serveur.
+2. Les attaques contre le réseau.
+3. Les attaques contre les appareils.
+4. Les attaques contre la gestion des clés.
+5. Les attaques contre le protocole.
+6. Les attaques contre la chaîne de distribution du code PWA.
+
+Pour chaque scénario, préciser :
+
+- préconditions ;
+- objectif de l'attaquant ;
+- impact ;
+- protections existantes ;
+- protections manquantes ;
+- risque résiduel.
+
+## 3.3 Hiérarchie des clés
+
+Examiner intégralement la hiérarchie des secrets.
+
+Vérifier notamment :
+
+- VSK ;
+- clés maîtresses ;
+- clés de protection ;
+- clés de données ;
+- clés d'époque ;
+- clés d'appareils ;
+- clés de chiffrement des opérations ;
+- clés de chiffrement des médias.
+
+Vérifier qu'aucune clé ne sert à plusieurs usages incompatibles.
+
+Vérifier que la dérivation utilise des contextes distincts et non ambigus.
+
+Vérifier que les clés dérivées ne peuvent pas être utilisées pour retrouver les secrets parents.
+
+Vérifier les dépendances entre les générations de clés.
+
+Produire un diagramme réel de la hiérarchie constatée dans le code.
+
+Ne pas se contenter de reproduire le diagramme documentaire.
+
+## 3.4 Argon2id
+
+Vérifier :
+
+- variante Argon2id ;
+- version ;
+- longueur de sortie ;
+- paramètres mémoire ;
+- nombre d'itérations ;
+- parallélisme ;
+- salt ;
+- encodage des entrées ;
+- validation des paramètres ;
+- compatibilité Python / TypeScript.
+
+Vérifier que les paramètres sont suffisamment robustes et compatibles avec les appareils ciblés.
+
+Ne pas modifier arbitrairement les paramètres.
+
+Évaluer leur coût réel sur une machine de référence et sur un appareil mobile représentatif si disponible.
+
+Vérifier que le salt est généré de manière cryptographiquement sûre et n'est jamais réutilisé de façon incorrecte.
+
+Les paramètres doivent être stockés avec les informations nécessaires à la dérivation.
+
+Documenter les risques de déni de service liés à des paramètres Argon2id contrôlés par un attaquant.
+
+## 3.5 HKDF-SHA-256
+
+Vérifier :
+
+- extraction ;
+- expansion ;
+- salt ;
+- info ;
+- longueur demandée ;
+- séparation des domaines cryptographiques ;
+- encodage des contextes.
+
+Exécuter le vecteur RFC 5869 A.1.
+
+Vérifier le résultat indépendamment dans les deux environnements.
+
+Vérifier que les fonctions de dérivation utilisées par le projet ne confondent pas HKDF et dérivation de mot de passe.
+
+## 3.6 XChaCha20-Poly1305
+
+Examiner toutes les utilisations de cette primitive.
+
+Vérifier :
+
+- génération du nonce ;
+- longueur du nonce ;
+- clé ;
+- AAD ;
+- ciphertext ;
+- tag d'authentification ;
+- encodage ;
+- gestion des erreurs ;
+- comportement après altération.
+
+Vérifier que les nonces ne sont pas réutilisés avec une même clé.
+
+Vérifier que l'authentification est systématiquement contrôlée avant de fournir les données déchiffrées à l'application.
+
+Vérifier que les échecs d'authentification ne provoquent pas de retour silencieux vers un mode non authentifié.
+
+Vérifier l'interopérabilité Python / TypeScript.
+
+## 3.7 Sérialisation et AAD
+
+Examiner RFC 8785 / JCS.
+
+Vérifier :
+
+- encodage UTF-8 ;
+- ordre des propriétés ;
+- représentation des nombres ;
+- valeurs nulles ;
+- chaînes Unicode ;
+- caractères échappés ;
+- champs obligatoires ;
+- champs optionnels ;
+- tableaux ;
+- UUID ;
+- représentation des dates.
+
+Vérifier que les deux environnements construisent exactement les mêmes octets d'AAD.
+
+Tester des cas limites :
+
+- ordre différent des propriétés ;
+- propriétés absentes ;
+- valeurs nulles ;
+- UUID en majuscules/minuscules ;
+- caractères Unicode ;
+- chaînes vides ;
+- nombres limites ;
+- données malformées.
+
+Une AAD différente doit entraîner un échec d'authentification.
+
+## 3.8 Chiffrement des opérations
+
+Vérifier que :
+
+- chaque opération est authentifiée ;
+- le coffre est correctement lié au ciphertext ;
+- l'identité de l'opération est authentifiée ;
+- l'époque est authentifiée ;
+- la version de protocole est authentifiée ;
+- le type d'objet est authentifié lorsqu'il est nécessaire ;
+- les métadonnées sensibles ne sont pas exposées inutilement.
+
+Vérifier la protection contre :
+
+- modification d'une opération ;
+- substitution entre coffres ;
+- substitution entre appareils ;
+- substitution d'époque ;
+- rejeu ;
+- duplication ;
+- réordonnancement ;
+- suppression d'opérations ;
+- troncature du journal.
+
+Examiner les garanties réellement fournies par les séquences serveur et les identifiants d'opération.
+
+Ne pas confondre ordre de réception, ordre logique et causalité entre appareils.
+
+Documenter précisément les limites éventuelles.
+
+## 3.9 Chiffrement des médias
+
+Examiner le format NTRM1 et l'utilisation de secretstream libsodium.
+
+Vérifier :
+
+- initialisation ;
+- clés ;
+- en-têtes ;
+- nonces ;
+- taille des blocs ;
+- tags ;
+- fin de flux ;
+- troncature ;
+- corruption ;
+- ordre des blocs ;
+- intégrité globale ;
+- reprise des uploads ;
+- détection des doublons.
+
+Tester :
+
+- fichier vide ;
+- fichier volumineux ;
+- interruption pendant transfert ;
+- bloc altéré ;
+- bloc manquant ;
+- bloc dupliqué ;
+- flux tronqué ;
+- mauvais ordre ;
+- mauvais secret ;
+- mauvaise clé.
+
+Vérifier que le serveur ne peut pas produire un média accepté après modification de son contenu.
+
+Ne pas considérer le seul hash comme une preuve d'authenticité.
+
+## 3.10 Jumelage des appareils
+
+Examiner le parcours complet.
+
+Vérifier :
+
+- création de la demande ;
+- génération des secrets temporaires ;
+- durée de validité ;
+- usage unique ;
+- validation ;
+- authentification des deux appareils ;
+- échange des informations cryptographiques ;
+- protection contre le rejeu ;
+- protection contre l'interception ;
+- protection contre la substitution d'identité ;
+- confirmation explicite de l'utilisateur.
+
+Vérifier qu'un serveur compromis ne peut pas silencieusement substituer une identité ou une clé d'appareil.
+
+Vérifier ce que permet réellement le jumelage si un appareil est compromis.
+
+Tester :
+
+- code expiré ;
+- code déjà utilisé ;
+- demande annulée ;
+- demande modifiée ;
+- appareil inconnu ;
+- appareil révoqué ;
+- demande concurrente ;
+- réponse altérée.
+
+## 3.11 Révocation et rotation
+
+Examiner les mécanismes réels.
+
+Vérifier que :
+
+- la révocation bloque les accès futurs de l'appareil ;
+- les nouveaux secrets d'époque ne sont pas distribués à l'appareil révoqué ;
+- les appareils autorisés reçoivent les nouvelles clés de façon authentifiée ;
+- les anciennes clés ne sont pas réutilisées par erreur ;
+- les opérations anciennes restent déchiffrables selon la politique retenue ;
+- les opérations nouvelles utilisent la bonne époque ;
+- les médias suivent la politique de rotation prévue.
+
+Tester un scénario complet :
+
+1. Deux appareils sont autorisés.
+2. Les deux synchronisent des données.
+3. Le deuxième appareil est révoqué.
+4. Une nouvelle époque est créée.
+5. Le premier appareil reçoit la nouvelle clé.
+6. Le deuxième appareil tente de récupérer les opérations.
+7. Le deuxième appareil tente d'utiliser un ancien jeton.
+8. Le deuxième appareil tente d'envoyer une opération.
+9. Le deuxième appareil tente d'accéder aux médias.
+10. Vérifier les résultats.
+
+Attention : la révocation ne peut pas effacer les secrets ni les données déjà récupérés par un appareil compromis.
+
+Ne pas présenter la révocation comme une garantie d'effacement rétroactif.
+
+## 3.12 Stockage local des secrets
+
+Vérifier les stockages Python et TypeScript.
+
+Pour Python :
+
+- permissions des fichiers ;
+- permissions des répertoires ;
+- permissions SQLite ;
+- fichiers temporaires ;
+- logs ;
+- sauvegardes ;
+- éventuels secrets dans les configurations.
+
+Pour TypeScript :
+
+- IndexedDB ;
+- stockage local ;
+- session ;
+- service worker ;
+- cache ;
+- données temporaires ;
+- secrets présents dans les bundles ;
+- exposition aux scripts tiers.
+
+Vérifier notamment qu'une clé privée ou une clé maîtresse n'est pas stockée dans un emplacement accessible au serveur.
+
+Évaluer les protections réelles contre l'extraction locale.
+
+Ne pas prétendre qu'un chiffrement E2E protège un appareil déjà compromis.
+
+## 3.13 Tests d'attaque négatifs
+
+Créer ou compléter une suite de tests adversariaux.
+
+Inclure notamment :
+
+- ciphertext altéré ;
+- nonce incorrect ;
+- AAD incorrecte ;
+- mauvaise clé ;
+- mauvaise époque ;
+- UUID substitué ;
+- opération rejouée ;
+- opération dupliquée ;
+- appareil révoqué ;
+- jeton expiré ;
+- code de jumelage expiré ;
+- média tronqué ;
+- média modifié ;
+- enveloppe malformée ;
+- données JSON invalides ;
+- paramètres cryptographiques invalides.
+
+Les tests doivent vérifier le refus correct de ces situations.
+
+Ne jamais considérer un test comme réussi si l'application ignore silencieusement une erreur d'authentification.
+
+## 3.14 Analyse des dépendances cryptographiques
+
+Identifier précisément les bibliothèques cryptographiques utilisées dans Python et TypeScript.
+
+Pour chaque dépendance, documenter :
+
+- nom ;
+- version ;
+- algorithmes utilisés ;
+- maintenance ;
+- origine ;
+- statut de sécurité ;
+- dépendances transitives pertinentes ;
+- compatibilité entre plateformes.
+
+Vérifier que les implémentations utilisées ne reposent pas sur des fonctions obsolètes ou des modes cryptographiques non authentifiés.
+
+Ne pas remplacer une bibliothèque sans raison démontrée.
+
+## 3.15 Critères d'acceptation
+
+La phase est validée uniquement si :
+
+- la hiérarchie des clés est documentée à partir du code ;
+- les paramètres cryptographiques sont vérifiés ;
+- les vecteurs communs passent dans les deux environnements ;
+- les tests croisés passent ;
+- les tests adversariaux sont exécutés ;
+- le jumelage est vérifié ;
+- la révocation et la rotation sont vérifiées ;
+- les secrets locaux sont examinés ;
+- les limites de sécurité sont explicitement documentées ;
+- aucune vulnérabilité critique non corrigée ne reste sans blocage explicite.
+
+---
+
+# PHASE 4 — CORRECTIONS AUTORISÉES ET CONTRÔLE DES RÉGRESSIONS
+
+Après les trois audits :
+
+1. Classer les problèmes par sévérité.
+2. Identifier les corrections circonscrites et sans changement de protocole.
+3. Corriger les problèmes de configuration, de validation, de contrôle d'accès ou de journalisation lorsque cela ne modifie pas les garanties contractuelles.
+4. Ajouter les tests correspondants.
+5. Exécuter à nouveau toutes les suites.
+
+Classification obligatoire :
+
+| Niveau | Signification |
+|---|---|
+| CRITICAL | Compromission directe de données, clés ou authentification |
+| HIGH | Contournement de sécurité ou atteinte grave à l'intégrité |
+| MEDIUM | Faiblesse exploitable dans certaines conditions |
+| LOW | Défaut limité ou risque faible |
+| INFO | Amélioration ou observation sans vulnérabilité démontrée |
+
+Ne pas minimiser une vulnérabilité pour faire passer la mission.
+
+Ne pas modifier silencieusement :
+
+- la hiérarchie des clés ;
+- les paramètres Argon2id ;
+- la construction AAD ;
+- les formats cryptographiques ;
+- les règles de rotation ;
+- le protocole HTTP ;
+- les modèles de données.
+
+Si une telle modification est indispensable, documenter le problème, ses conséquences, les options possibles et attendre une validation explicite avant de l'implémenter.
+
+---
+
+# PHASE 5 — RAPPORT FINAL DE VALIDATION PRÉPRODUCTION
+
+Produire le document :
+
+`docs/sync/NOTEOR_SYNC_PREPRODUCTION_REPORT.md`
+
+Ce document doit être autonome, détaillé et vérifiable.
+
+Il doit contenir les sections suivantes :
+
+## 1. Synthèse exécutive
+
+- état général ;
+- niveau de préparation ;
+- risques principaux ;
+- recommandation de mise en production ou de blocage.
+
+## 2. Environnement de validation
+
+- commit testé ;
+- système ;
+- versions Python ;
+- versions Node.js ;
+- dépendances ;
+- commandes exécutées ;
+- outils utilisés.
+
+## 3. Résultats CI
+
+- workflows créés ;
+- workflows exécutés ;
+- tests Python ;
+- tests TypeScript ;
+- build ;
+- lint ;
+- tests cryptographiques ;
+- analyse des dépendances ;
+- résultats GitHub Actions réellement observés.
+
+## 4. Résultats FastAPI/Uvicorn
+
+- démarrage ;
+- endpoints ;
+- authentification ;
+- autorisation ;
+- persistance ;
+- redémarrage ;
+- transferts ;
+- erreurs ;
+- tests négatifs ;
+- limites identifiées.
+
+## 5. Audit cryptographique
+
+- modèle de menace ;
+- hiérarchie des clés ;
+- Argon2id ;
+- HKDF ;
+- XChaCha20-Poly1305 ;
+- AAD ;
+- opérations ;
+- médias ;
+- jumelage ;
+- révocation ;
+- rotation ;
+- stockage local ;
+- interopérabilité.
+
+## 6. Vulnérabilités
+
+Pour chaque problème :
+
+- identifiant ;
+- sévérité ;
+- description ;
+- fichier concerné ;
+- preuve ;
+- scénario d'exploitation ;
+- impact ;
+- correction ;
+- test de non-régression ;
+- statut.
+
+## 7. Résultats des corrections
+
+Distinguer les corrections effectuées de celles qui restent à faire.
+
+## 8. Risques résiduels
+
+Documenter toutes les limites qui n'ont pas pu être éliminées.
+
+## 9. Matrice de conformité
+
+| Domaine | Résultat | Preuve | Blocage |
+|---|---|---|---|
+| CI Python | | | |
+| CI TypeScript | | | |
+| Interopérabilité crypto | | | |
+| FastAPI/Uvicorn | | | |
+| Authentification | | | |
+| Autorisation | | | |
+| Stockage serveur | | | |
+| Médias | | | |
+| Jumelage | | | |
+| Révocation | | | |
+| Rotation | | | |
+| Stockage local | | | |
+
+## 10. Décision finale
+
+Choisir obligatoirement l'un des états suivants :
+
+- **VALIDÉ POUR INTÉGRATION** : aucun blocage identifié dans le périmètre examiné, tests obligatoires exécutés et réussis.
+- **VALIDÉ SOUS RÉSERVES** : quelques risques résiduels documentés, sans vulnérabilité bloquante connue.
+- **NON VALIDÉ** : des défauts importants restent à corriger ou des preuves essentielles manquent.
+
+Ne jamais utiliser « validé pour production » si des tests obligatoires n'ont pas été exécutés.
+
+---
+
+# PHASE 6 — DOCUMENTATION D'EXPLOITATION
+
+Créer ou mettre à jour, si nécessaire :
+
+`docs/sync/NOTEOR_SYNC_OPERATIONS.md`
+
+Ce document doit décrire uniquement l'exploitation du serveur existant :
+
+- installation ;
+- configuration ;
+- lancement Uvicorn ;
+- accès privé ;
+- VPN ;
+- sauvegardes ;
+- restauration ;
+- mises à jour ;
+- journaux ;
+- diagnostic ;
+- arrêt ;
+- redémarrage ;
+- vérification de santé.
+
+Documenter les commandes réellement testées.
+
+Ne pas inventer de procédure qui n'a pas été validée.
+
+Ne pas introduire de nouvelle plateforme d'hébergement ou de dépendance d'infrastructure.
+
+---
+
+# RÈGLES IMPÉRATIVES DE LA MISSION
+
+1. Ne pas ajouter de fonctionnalité métier.
+2. Ne pas réécrire le protocole.
+3. Ne pas refondre l'architecture.
+4. Ne pas supprimer de fonctionnalité existante.
+5. Ne pas contourner les tests.
+6. Ne pas masquer les erreurs.
+7. Ne pas considérer une compilation comme une validation fonctionnelle.
+8. Ne pas considérer deux tests locaux indépendants comme une preuve d'interopérabilité.
+9. Ne pas affirmer qu'un test GitHub Actions a réussi sans résultat GitHub Actions vérifiable.
+10. Ne pas affirmer qu'une sécurité cryptographique est démontrée uniquement parce que les primitives sont reconnues.
+11. Ne jamais exposer de secrets dans les rapports ou les logs.
+12. Ne pas modifier les formats cryptographiques sans validation explicite.
+13. Ne pas considérer une absence de preuve comme une preuve de conformité.
+14. Distinguer systématiquement les constats, les hypothèses et les recommandations.
+15. Ne pas prétendre avoir réalisé un audit cryptographique formel ou une certification externe.
+
+## Gestion des blocages
+
+Si une phase révèle un problème qui empêche de poursuivre correctement :
+
+- documenter le problème ;
+- identifier les composants concernés ;
+- préciser les risques ;
+- proposer une correction ;
+- ne pas masquer le blocage en réduisant le périmètre des tests.
+
+## LIVRABLES ATTENDUS
+
+À la fin de la mission, le dépôt doit contenir, selon les besoins identifiés :
+
+- `.github/workflows/` avec les workflows de CI ;
+- `docs/sync/NOTEOR_SYNC_PREPRODUCTION_BASELINE.md` ;
+- `docs/sync/NOTEOR_SYNC_PREPRODUCTION_REPORT.md` ;
+- `docs/sync/NOTEOR_SYNC_OPERATIONS.md` ;
+- les tests complémentaires ;
+- les éventuelles corrections de sécurité circonscrites.
+
+Les fichiers existants doivent être préservés et actualisés plutôt que dupliqués inutilement.
+
+## CRITÈRE FINAL DE RÉUSSITE
+
+La mission est terminée uniquement lorsque :
+
+1. La CI GitHub Actions fonctionne réellement.
+2. Les suites Python et TypeScript sont exécutées.
+3. Les tests d'interopérabilité cryptographique sont exécutés.
+4. Le véritable serveur FastAPI fonctionne sous Uvicorn.
+5. Les scénarios HTTP et de persistance sont validés.
+6. Les contrôles de sécurité du serveur sont testés.
+7. L'audit E2E est documenté avec des preuves.
+8. Les vulnérabilités sont corrigées ou explicitement bloquantes.
+9. Les risques résiduels sont documentés.
+10. Le rapport final fournit une décision argumentée.
+
+**Ne pas déclarer Noteorsync prêt pour la production simplement parce que les tests passent. La décision doit prendre en compte les limites du modèle de menace, les résultats adversariaux et les preuves effectivement obtenues.**
