@@ -51,9 +51,9 @@ Toutes les vérifications exécutables localement (cryptographie croisée Python
 - **Zero masquage d'erreur :** aucune directive `continue-on-error: true` ni `|| true`.
 - **Actions épinglées par SHA immuable :**
   - `actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683` (`# v4.2.2`)
-  - `actions/setup-python@42375524e23c412d93fb67b49958b491fbc71c33` (`# v5`)
+  - `actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065` (`# v5.6.0`)
   - `oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6` (`# v2.2.0`)
-  - `actions/setup-node@60edb5e545a29e3b5dce4821dcc63018ebc2594e` (`# v4.2.0`)
+  - `actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020` (`# v4.4.0`)
 - **4 jobs distincts :**
   1. `python-and-crypto-interop` : matrice Python `3.11` / `3.12`, `libsodium23`, `Node 22` + `Bun` (requis pour le test bidirectionnel TS→Py), `py_compile`, `ruff check --select E9,F63,F7,F82`, `unittest`.
   2. `web-pwa-and-e2e` : `bun install --frozen-lockfile`, `bun run lint`, `bunx vitest run`, `bun run build`, vérification de présence de `web/dist/{index.html,_headers,sw.js,manifest.webmanifest}`.
