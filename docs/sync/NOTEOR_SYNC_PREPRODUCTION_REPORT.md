@@ -50,10 +50,10 @@ Toutes les vérifications exécutables localement (cryptographie croisée Python
 - **Concurrence & bornes :** `concurrency` avec `cancel-in-progress: true` et `timeout-minutes` explicite sur chacun des 4 jobs (`10` à `15` min).
 - **Zero masquage d'erreur :** aucune directive `continue-on-error: true` ni `|| true`.
 - **Actions épinglées par SHA immuable :**
-  - `actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683` (`# v4.2.2`)
-  - `actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065` (`# v5.6.0`)
+  - `actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803` (`# v6.1.0`)
+  - `actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1` (`# v6.3.0`)
   - `oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6` (`# v2.2.0`)
-  - `actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020` (`# v4.4.0`)
+  - `actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38` (`# v6.5.0`)
 - **4 jobs distincts :**
   1. `python-and-crypto-interop` : matrice Python `3.11` / `3.12`, `libsodium23`, `Node 22` + `Bun` (requis pour le test bidirectionnel TS→Py), `py_compile`, `ruff check --select E9,F63,F7,F82`, `unittest`.
   2. `web-pwa-and-e2e` : `bun install --frozen-lockfile`, `bun run lint`, `bunx vitest run`, `bun run build`, vérification de présence de `web/dist/{index.html,_headers,sw.js,manifest.webmanifest}`.
